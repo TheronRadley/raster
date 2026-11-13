@@ -84,10 +84,7 @@ impl IgnoreRule {
                 }
             }
         }
-        if is_dir && self.regex.is_match(&basename) {
-            return true;
-        }
-        false
+        is_dir && self.regex.is_match(&basename)
     }
 }
 
