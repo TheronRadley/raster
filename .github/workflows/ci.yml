@@ -37,25 +37,6 @@ jobs:
       - name: Clippy with warnings denied
         run: cargo clippy --offline --locked -p raster --all-targets -- -D warnings
 
-      - name: Enable MSVC for native checks (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Native C/C++/Python checks
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            PY=python
-          elif command -v python3 >/dev/null 2>&1; then
-            PY=python3
-          elif command -v python >/dev/null 2>&1; then
-            PY=python
-          else
-            echo "Python 3 is required for native checks" >&2
-            exit 1
-          fi
-          "$PY" scripts/native_checks.py --build-dir target/native --output native-checks.json
-
       - name: Debug tests
         run: cargo test --offline --locked
 
@@ -89,6 +70,27 @@ jobs:
       - name: Deterministic mutation fuzz (Linux)
         if: runner.os == 'Linux'
         run: cargo run --quiet --offline --locked --bin raster-fuzz -- --seed 90578502313330 --iterations 100 --max-ops 40
+
+      # Enable MSVC after the Rust steps. With the dev-cmd PATH active, Git
+      # Bash's /usr/bin/link.exe can shadow the MSVC linker used by Cargo.
+      - name: Enable MSVC for native checks (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Native C/C++/Python checks
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PY=python
+          elif command -v python3 >/dev/null 2>&1; then
+            PY=python3
+          elif command -v python >/dev/null 2>&1; then
+            PY=python
+          else
+            echo "Python 3 is required for native checks" >&2
+            exit 1
+          fi
+          "$PY" scripts/native_checks.py --build-dir target/native --output native-checks.json
 
       - name: Interactive PTY smoke test (Linux)
         if: runner.os == 'Linux'

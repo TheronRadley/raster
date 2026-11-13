@@ -41,8 +41,10 @@ in CI artifact files and are not committed.
 - Linux: `cc`/`c++` build a `.so`; CI uses it for the PTY smoke test.
 - macOS: `cc`/`c++` build a `.dylib`; `DYLD_LIBRARY_PATH` is set only for the
   test CLI invocation.
-- Windows: `ilammy/msvc-dev-cmd` puts `cl.exe` on `PATH`; the script builds a
-  DLL and import library and sets `PATH` for the test CLI invocation.
+- Windows: `ilammy/msvc-dev-cmd` puts `cl.exe` on `PATH` after the Rust steps;
+  the script builds a DLL and import library and sets `PATH` for the test CLI
+  invocation. Enabling MSVC earlier lets Git Bash's `/usr/bin/link.exe` shadow
+  Cargo's MSVC linker, so CI deliberately orders the native step last.
 - Termux/Android: not validated. The Rust editor core and Python scripts are
   the supported local path; native C/C++ checks are not part of that validation
   yet.
