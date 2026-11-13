@@ -87,9 +87,11 @@ edits.
   targets, and original read bytes are respected. Permission and full-disk
   failures leave the original intact.
 - External changes never silently reload a dirty buffer. Invalid UTF-8 and NUL
-  bytes are refused rather than replaced. Recovery files are private (`0600`)
-  inside a private state directory (`0700`); session JSON stores paths and
-  viewport metadata, not document contents.
+  bytes are refused rather than replaced. On Unix, recovery files are private
+  (`0600`) inside a private state directory (`0700`); `std::fs::Permissions`
+  does not expose equivalent ACL bits on Windows, so that platform relies on
+  the OS default ACL and the unit tests assert only existence/non-readonly.
+  Session JSON stores paths and viewport metadata, not document contents.
 - System clipboard and OSC 52 are distinct from internal registers and are off
   by default. Remote OSC 52 requires explicit opt-in.
 
@@ -112,10 +114,19 @@ strict config/JSON subsets, renderer, and JSON-RPC client are small local
 modules. This keeps platform behavior auditable and avoids pulling in
 unreviewed runtime behavior.
 
+## Language boundaries
+
+The interactive editor remains Rust-only. A bounded verification layer uses C99
+for a versioned checksum ABI, C++17 for a standalone CLI that consumes that ABI,
+and Python 3 for PTY orchestration plus `ctypes`/CLI parity checks. The native
+library is not linked into the editor binary and never handles documents at
+runtime. See [NATIVE.md](NATIVE.md) and [native/README.md](../native/README.md).
+
 ## Explicitly out of scope for this branch
 
 Full Arabic shaping/bidi rendering and selection, complete Vim/Helix
 compatibility, a debugger, an embedded terminal, destructive Git operations,
-real-server LSP integration tests, release assets, and validated
-macOS/Windows/Termux support are not delivered here. They are documented in
+real-server LSP integration tests, release assets, and local
+macOS/Windows/Termux validation are not delivered here. Hosted CI now runs
+Linux/macOS/Windows; see [PLATFORMS.md](PLATFORMS.md) and
 [LIMITATIONS.md](LIMITATIONS.md).

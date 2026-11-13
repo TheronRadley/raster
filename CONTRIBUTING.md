@@ -9,10 +9,13 @@ editing predictable and preserve data safety.
 2. Keep the editing engine testable without a terminal. Put terminal behavior
    in `src/term/`, controller behavior in `src/app/editor.rs`, and pure text
    rules in `src/core/`.
-3. Do not add a second implementation language without a specific technical
-   need. Established Rust crates are acceptable when they materially improve
-   correctness or maintenance; document licensing, platform support, and why
-   the dependency is needed.
+3. Keep the interactive editor in Rust. A second implementation language is
+   acceptable only for bounded verification/tooling with a specific technical
+   need; the existing C99 checksum ABI, C++17 CLI, and Python orchestration are
+   documented in [docs/NATIVE.md](docs/NATIVE.md). Do not link native helpers
+   into the editing path. Established Rust crates are acceptable when they
+   materially improve correctness or maintenance; document licensing, platform
+   support, and why the dependency is needed.
 4. Do not introduce full-file copies on ordinary keystrokes, undo, redo, or
    render paths. Use rope clones and bounded chunks.
 5. Keep expensive work off the interactive input path. Worker results must
@@ -52,14 +55,18 @@ Useful extra validations:
 cargo run --offline --locked --bin raster -- --no-config --health
 cargo run --offline --locked --bin raster -- --no-config --no-session --no-lsp \
   --replay examples/replay.txt --dump-screen screen.txt
-python3 scripts/pty_smoke.py --binary target/debug/raster --output pty-smoke.json  # Linux only
+python3 scripts/native_checks.py --build-dir target/native --output native-checks.json
+python3 scripts/pty_smoke.py --binary target/debug/raster \
+  --native-lib target/native/libraster_checksum.so --output pty-smoke.json  # Linux only
 cargo run --offline --locked --bin raster-bench -- --size-mib 1 --iterations 20 --output bench.json
 ```
 
-CI runs fmt, clippy, tests, release build, and headless replay on Linux,
-macOS, and Windows; Linux additionally runs release tests, the fuzz-target
-check, PTY smoke, and a small benchmark. See
-[.github/workflows/ci.yml](.github/workflows/ci.yml).
+CI runs fmt, clippy, native C/C++/Python checks, tests, release build, and
+headless replay on Linux, macOS, and Windows; Linux additionally runs release
+tests, the fuzz-target check, PTY smoke with the C checksum library, and a small
+benchmark. Windows enables MSVC for the native build. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml) and
+[docs/NATIVE.md](docs/NATIVE.md).
 
 ## Tests to add with changes
 
@@ -79,8 +86,9 @@ check, PTY smoke, and a small benchmark. See
 
 ## Documentation
 
-Update `README.md`, `docs/CONFIG.md`, `docs/SHORTCUTS.md`,
-`docs/PLATFORMS.md`, `docs/PERFORMANCE.md`, and `docs/LIMITATIONS.md` when
+Update `README.md`, `docs/ARCHITECTURE.md`, `docs/CONFIG.md`,
+`docs/SHORTCUTS.md`, `docs/PLATFORMS.md`, `docs/PERFORMANCE.md`,
+`docs/NATIVE.md`, and `docs/LIMITATIONS.md` when
 behavior changes. Label planned features clearly. Do not fabricate
 screenshots, benchmark numbers, platform support, release assets, or
 compatibility claims.

@@ -1,1 +1,1 @@
-{"arch":"x86_64","build_profile":"release","iterations":7,"max_ms":0.7537400000000001,"median_ms":0.5791700000000001,"method":"headless Editor construction + one 80x24 frame; no terminal, LSP, Git, recovery, or file I/O","min_ms":0.522622,"os":"linux","status":"ok"}
+{"arch":"x86_64","build_profile":"release","iterations":7,"max_ms":0.8999309999999999,"median_ms":0.6201549999999999,"method":"headless Editor construction + one 80x24 frame; no terminal, LSP, Git, recovery, or file I/O","min_ms":0.478013,"os":"linux","status":"ok"}

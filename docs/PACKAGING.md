@@ -72,9 +72,9 @@ should include:
 [.github/workflows/ci.yml](../.github/workflows/ci.yml) builds release binaries
 on Linux, macOS, and Windows and uploads them as workflow artifacts named
 `raster-binaries-<runner OS>`. It also uploads generated health/startup/
-benchmark/PTY/replay artifacts where available. These are CI build outputs,
-not signed or published releases. CI had not run in this sandbox at the time of
-writing.
+benchmark/PTY/native-check/replay artifacts where available. These are CI build
+outputs, not signed or published releases. The workflow runs in hosted GitHub
+Actions, not inside this sandbox; see the PR checks for current results.
 
 ## Cross-compilation and Termux
 

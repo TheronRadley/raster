@@ -37,6 +37,25 @@ jobs:
       - name: Clippy with warnings denied
         run: cargo clippy --offline --locked -p raster --all-targets -- -D warnings
 
+      - name: Enable MSVC for native checks (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Native C/C++/Python checks
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PY=python
+          elif command -v python3 >/dev/null 2>&1; then
+            PY=python3
+          elif command -v python >/dev/null 2>&1; then
+            PY=python
+          else
+            echo "Python 3 is required for native checks" >&2
+            exit 1
+          fi
+          "$PY" scripts/native_checks.py --build-dir target/native --output native-checks.json
+
       - name: Debug tests
         run: cargo test --offline --locked
 
@@ -73,7 +92,7 @@ jobs:
 
       - name: Interactive PTY smoke test (Linux)
         if: runner.os == 'Linux'
-        run: python3 scripts/pty_smoke.py --binary target/debug/raster --output pty-smoke.json
+        run: python3 scripts/pty_smoke.py --binary target/debug/raster --native-lib target/native/libraster_checksum.so --output pty-smoke.json
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v4
@@ -93,5 +112,6 @@ jobs:
             startup-ci.json
             bench-ci-1mib.json
             pty-smoke.json
+            native-checks.json
             screen.txt
           if-no-files-found: ignore

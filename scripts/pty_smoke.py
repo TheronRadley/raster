@@ -4,8 +4,12 @@
 It validates raw-mode setup/cleanup, ordinary typing, exact undo/redo,
 bracketed paste, help overlay, resize, save, quit, and idle RSS. It never
 prints document contents; only booleans and measured process memory.
+
+With --native-lib it uses the C checksum ABI built by scripts/native_checks.py;
+otherwise it falls back to an equivalent pure-Python reference.
 """
 import argparse
+import ctypes
 import errno
 import fcntl
 import json
@@ -31,6 +35,27 @@ def fnv1a(data):
         value ^= byte
         value = (value * 0x100000001b3) & 0xffffffffffffffff
     return value
+
+
+def native_fnv1a(library_path):
+    """Load the C ABI from scripts/native_checks.py's shared library."""
+    library = ctypes.CDLL(os.path.abspath(library_path))
+    checksum = library.raster_fnv1a64
+    checksum.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
+    checksum.restype = ctypes.c_uint64
+    abi = library.raster_checksum_abi_version
+    abi.argtypes = []
+    abi.restype = ctypes.c_uint32
+    if abi() != 1:
+        raise RuntimeError("unsupported raster checksum ABI version")
+
+    def digest(data):
+        if not data:
+            return int(checksum(None, 0))
+        buffer = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+        return int(checksum(buffer, len(data)))
+
+    return digest
 
 
 def rss_kib(pid):
@@ -75,9 +100,11 @@ def wait_for_text(fd, output, marker, timeout=5.0):
     return False
 
 
-def run(binary, output_path, keep_work=False):
+def run(binary, output_path, keep_work=False, native_lib=None):
     work = tempfile.mkdtemp(prefix="raster-pty-")
     checks = {}
+    hash_fn = native_fnv1a(native_lib) if native_lib else fnv1a
+    hash_backend = "c" if native_lib else "python"
     idle_rss = None
     exit_code = None
     saved_bytes = None
@@ -85,7 +112,7 @@ def run(binary, output_path, keep_work=False):
     # A CLI-opened file starts its caret at line 1, column 1. Typing and
     # bracketed paste therefore precede the original text exactly.
     expected_bytes = "abcPasted مرحبا 😀start\n".encode("utf-8")
-    expected_hash = fnv1a(expected_bytes)
+    expected_hash = hash_fn(expected_bytes)
     initial_lflag = None
     final_lflag = None
     pid = master = None
@@ -157,7 +184,7 @@ def run(binary, output_path, keep_work=False):
                 with open(sample, "rb") as handle:
                     data = handle.read()
                 saved_bytes = len(data)
-                saved_hash = fnv1a(data)
+                saved_hash = hash_fn(data)
                 if data == expected_bytes:
                     checks["saved_exact"] = True
                     break
@@ -204,6 +231,7 @@ def run(binary, output_path, keep_work=False):
     report = {
         "tool": "scripts/pty_smoke.py",
         "binary": os.path.basename(binary),
+        "hash_backend": hash_backend,
         "platform": "Linux PTY (xterm-256color, 100x30 then 40x10 then 100x30)",
         "idle_rss_kib": idle_rss,
         "expected_bytes": len(expected_bytes),
@@ -232,8 +260,17 @@ def main():
     parser.add_argument("--binary", default="target/release/raster")
     parser.add_argument("--output")
     parser.add_argument("--keep-work", action="store_true")
+    parser.add_argument(
+        "--native-lib",
+        help="optional C shared library built by scripts/native_checks.py",
+    )
     args = parser.parse_args()
-    return run(os.path.abspath(args.binary), args.output, args.keep_work)
+    return run(
+        os.path.abspath(args.binary),
+        args.output,
+        args.keep_work,
+        args.native_lib,
+    )
 
 
 if __name__ == "__main__":

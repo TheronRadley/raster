@@ -16,10 +16,13 @@ implied to be shipped.
    strings or equate UTF-8 storage with complete Arabic support.
 2. **macOS, Windows, and Android/Termux are not locally validated.** Linux PTY,
    headless, unit, property, mock-LSP, fuzz, benchmark, formatter, linter, and
-   release builds passed locally. CI for Linux/macOS/Windows is defined in
-   [.github/workflows/ci.yml](../.github/workflows/ci.yml) but had not run in
-   this sandbox. Windows console FFI and macOS Unix signal numbers are written
-   but not compiled/tested here. Termux requires separate device validation.
+   release builds passed locally. Hosted Linux/macOS/Windows CI in
+   [.github/workflows/ci.yml](../.github/workflows/ci.yml) has run on this PR;
+   all three OS jobs passed at commit `e37b0f8` after a Clippy 1.100 lint and
+   Windows-specific compile/test fixes. The later commit adds C/C++/Python
+   native checks; see the PR checks for its result. Windows console FFI and
+   macOS Unix signal numbers are compiled/tested in CI but not exercised on a
+   local device. Termux requires separate device validation.
 3. **Real language servers are not integration-tested.** The LSP client passes
    mock-server tests for initialize, diagnostics, completion, hover,
    definition/references/rename/format/code actions, UTF-8/UTF-16 encodings,
@@ -55,8 +58,10 @@ implied to be shipped.
   reported. OSC 52 is capped and off by default, and remote use requires
   `allow_remote`. Internal registers are always available.
 - Session JSON stores paths and viewport metadata, not document contents.
-  Recovery files are private on Unix (`0600` in a `0700` directory); Windows
-  ACL behavior and cross-platform permission equivalence need CI validation.
+  Recovery files are private on Unix (`0600` in a `0700` directory). On Windows,
+  `std::fs::Permissions` exposes only `readonly()`, so the code relies on the OS
+  default ACL and the tests do not claim Unix permission-bit equivalence. CI
+  compiles and tests the Windows path; ACL equivalence remains unverified.
 - Forced termination (`SIGKILL`, power loss) cannot restore terminal state.
   Normal exit, recoverable errors, and panics use a cleanup hook where
   possible. Suspend/resume is Unix-only.
@@ -79,17 +84,19 @@ implied to be shipped.
   50,000 deterministic fuzz operations; reproducible benchmarks.
 - **Local, partially checked:** `cargo check` with Rust 1.95.0 passed; the
   declared MSRV 1.88 exact toolchain was not installed.
-- **CI, defined but not run here:** Linux/macOS/Windows fmt, clippy, tests,
+- **Hosted CI, run on this PR:** Linux/macOS/Windows fmt, clippy, tests,
   release build, headless replay; Linux-only release tests, fuzz-target check,
-  PTY smoke, and small benchmark.
-- **Unverified:** hosted CI results, macOS, Windows, Termux, real LSP servers,
-  terminal-emulator rendering cost, SSH/tmux latency, Arabic shaping/bidi,
-  release packaging installs.
+  PTY smoke, and small benchmark. All six push/PR checks passed at commit
+  `e37b0f8`; a later commit adds native C/C++/Python checks on all three OSes.
+  See the PR checks for the current head.
+- **Unverified:** local macOS/Windows interactive behavior, Termux, real LSP
+  servers, terminal-emulator rendering cost, SSH/tmux latency, Arabic
+  shaping/bidi, Windows ACL equivalence, release packaging installs.
 
 ## Prioritized next improvements
 
-1. Run the hosted Linux/macOS/Windows CI jobs, fix any platform-specific
-   compile/test failures, and perform separate Termux device validation.
+1. Keep hosted Linux/macOS/Windows CI green including native checks, and
+   perform separate Termux device validation.
 2. Add real-server LSP integration tests (explicitly installed by the test
    harness) and harden multi-file WorkspaceEdit review before release.
 3. Decide and implement full Arabic shaping/bidi rendering and selection, or

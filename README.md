@@ -102,13 +102,20 @@ scripts are tested; see [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 Local checks on Linux are reported in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) and
-[docs/PLATFORMS.md](docs/PLATFORMS.md). CI for Linux, macOS, and Windows is
-defined in [.github/workflows/ci.yml](.github/workflows/ci.yml) but had not run
-in this sandbox at the time of writing. Termux is a separate validation task.
+[docs/PLATFORMS.md](docs/PLATFORMS.md). Hosted CI for Linux, macOS, and Windows
+is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml) and has run
+on this PR; see the PR checks and [docs/PLATFORMS.md](docs/PLATFORMS.md) for the
+current result. Termux is a separate validation task.
+
+The editor core is Rust. A small, bounded verification layer uses C99 for a
+versioned checksum ABI, C++17 for a CLI that consumes it, and Python 3 for PTY
+orchestration and cross-language parity checks; it is not linked into the editor
+binary. See [docs/NATIVE.md](docs/NATIVE.md).
 
 Other documents: [architecture](docs/ARCHITECTURE.md),
 [shortcut reference](docs/SHORTCUTS.md), [configuration](docs/CONFIG.md),
 [performance](docs/PERFORMANCE.md), [platforms](docs/PLATFORMS.md),
+[native verification](docs/NATIVE.md),
 [limitations and roadmap](docs/LIMITATIONS.md), [packaging](docs/PACKAGING.md),
 [contributing](CONTRIBUTING.md), and [security policy](SECURITY.md).
 
