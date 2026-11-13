@@ -1,0 +1,48 @@
+[package]
+name = "raster"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "A predictable terminal text editor for daily coding"
+repository = "https://github.com/TheronRadley/raster"
+readme = "README.md"
+authors = ["Theron Radley"]
+keywords = ["editor", "terminal", "text", "tui"]
+categories = ["command-line-utilities", "text-editors"]
+
+[workspace]
+members = ["."]
+exclude = ["third_party"]
+
+[lib]
+name = "raster"
+path = "src/lib.rs"
+
+[[bin]]
+name = "raster"
+path = "src/main.rs"
+
+[[bin]]
+name = "raster-bench"
+path = "src/bin/raster-bench.rs"
+
+[[bin]]
+name = "raster-fuzz"
+path = "src/bin/raster-fuzz.rs"
+
+[[bin]]
+name = "mock-lsp"
+path = "src/bin/mock-lsp.rs"
+
+[dependencies]
+ropey = { path = "third_party/ropey" }
+unicode-segmentation = { path = "third_party/unicode-segmentation" }
+unicode-width = { path = "third_party/unicode-width" }
+regex-lite = { path = "third_party/regex-lite" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+strip = true

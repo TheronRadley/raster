@@ -1,0 +1,1 @@
+{"failures":0,"iterations":500,"method":"deterministic mutation fuzz; String reference model; no terminal/LSP/Git","operations":50000,"seed":90578502313330,"status":"ok"}

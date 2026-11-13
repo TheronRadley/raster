@@ -1,0 +1,3 @@
+# Deliberately empty. Dependencies are local path dependencies so Cargo does
+# not need a registry index. Do not add source replacement here: CI and user
+# builds must not depend on sandbox-specific toolchain locations.

@@ -1,0 +1,62 @@
+# Raster example configuration. Copy to the config path shown by `raster --health`.
+# Unknown sections and keys are rejected instead of being silently ignored.
+
+[editor]
+tab_width = 4
+soft_wrap = true
+auto_indent = true
+profile = "normal"
+large_file_threshold = 10485760
+cjk_wide = false
+newline = "preserve"
+
+[ui]
+color = "auto"
+mouse = true
+tab_strip = true
+line_numbers = "absolute"
+min_columns = 24
+min_rows = 6
+alt_screen = true
+
+[clipboard]
+# Internal registers are always available. System clipboard and OSC 52 are
+# explicit opt-ins; remote sessions require allow_remote as well.
+system = false
+osc52 = false
+osc52_max_bytes = 65536
+allow_remote = false
+
+[search]
+hidden = false
+ignored = false
+max_results = 500
+context_lines = 0
+
+[session]
+restore = true
+recovery = true
+recovery_interval_ms = 1000
+recovery_retention_days = 7
+
+[lsp]
+# Disabled until the user explicitly installs and configures a server.
+# Raster never downloads servers or reads project-local executable settings.
+enabled = false
+request_timeout_ms = 5000
+trust_workspace_edits = false
+
+[[lsp.servers]]
+language = "rust"
+command = "rust-analyzer"
+args = []
+root_markers = ["Cargo.toml", "rust-toolchain.toml"]
+
+[git]
+enabled = true
+refresh_ms = 5000
+
+[keys]
+"ctrl+s" = "save"
+"ctrl+q" = "quit"
+"ctrl+shift+p" = "command-palette"
