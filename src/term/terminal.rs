@@ -7,7 +7,9 @@ use std::io::{self, Read, Write};
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::{Mutex, Once, OnceLock};
+use std::sync::Once;
+#[cfg(unix)]
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::config::Config;
@@ -417,14 +419,20 @@ fn platform_enter_raw() -> io::Result<()> {
         if GetConsoleMode(input, &mut input_mode) == 0 {
             return Err(io::Error::last_os_error());
         }
+        // Save the original output mode before changing it. A zero sentinel
+        // means no virtual-terminal change needs restoring.
+        let output_available = GetConsoleMode(output, &mut output_mode) != 0;
         WINDOWS_SAVED_MODE.store(input_mode, Ordering::SeqCst);
-        WINDOWS_SAVED_OUTPUT_MODE.store(output_mode, Ordering::SeqCst);
+        WINDOWS_SAVED_OUTPUT_MODE.store(
+            if output_available { output_mode } else { 0 },
+            Ordering::SeqCst,
+        );
         let raw = (input_mode & !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT))
             | ENABLE_VIRTUAL_TERMINAL_INPUT;
         if SetConsoleMode(input, raw) == 0 {
             return Err(io::Error::last_os_error());
         }
-        if GetConsoleMode(output, &mut output_mode) != 0 {
+        if output_available {
             let _ = SetConsoleMode(output, output_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
     }

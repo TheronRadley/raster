@@ -400,7 +400,6 @@ pub fn now_system_time() -> SystemTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     struct TestDir(PathBuf);
     impl TestDir {
@@ -436,9 +435,10 @@ mod tests {
         let manager = RecoveryManager::start(dir.0.join("state")).unwrap();
         let content = "a\r\nمرحبا 😀\nno final newline";
         let doc = Document::from_text(content);
+        let lost_path = std::env::temp_dir().join("lost.rs");
         manager.submit(RecoveryJob {
             buffer_id: 7,
-            path: Some(PathBuf::from("/tmp/lost.rs")),
+            path: Some(lost_path.clone()),
             label: "lost.rs".into(),
             rope: doc.rope(),
             version: 3,
@@ -450,11 +450,24 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].document.text(), content);
         assert_eq!(records[0].cursors, vec![Selection::caret(BytePos(5))]);
-        assert_eq!(records[0].path, Some(PathBuf::from("/tmp/lost.rs")));
-        let dir_mode = fs::metadata(manager.dir()).unwrap().permissions().mode() & 0o777;
-        let file_mode = fs::metadata(&records[0].file).unwrap().permissions().mode() & 0o777;
-        assert_eq!(dir_mode, 0o700);
-        assert_eq!(file_mode, 0o600);
+        assert_eq!(records[0].path, Some(lost_path));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir_mode = fs::metadata(manager.dir()).unwrap().permissions().mode() & 0o777;
+            let file_mode = fs::metadata(&records[0].file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(dir_mode, 0o700);
+            assert_eq!(file_mode, 0o600);
+        }
+        #[cfg(windows)]
+        {
+            // std::fs::Permissions exposes only readonly() on Windows. ACL
+            // equivalence to Unix 0700/0600 is not asserted by this test.
+            assert!(fs::metadata(manager.dir()).unwrap().is_dir());
+            let metadata = fs::metadata(&records[0].file).unwrap();
+            assert!(metadata.is_file());
+            assert!(!metadata.permissions().readonly());
+        }
         manager.remove(7);
         assert!(manager.recover_all().is_empty());
     }

@@ -12,6 +12,15 @@ use std::time::Duration;
 
 use crate::util::{short_path, wait_with_timeout};
 
+/// A path Git treats as an empty config / hook location on this platform.
+/// `/dev/null` is not a valid Win32 path; `NUL` is the Windows null device.
+#[cfg(unix)]
+const GIT_EMPTY_PATH: &str = "/dev/null";
+#[cfg(windows)]
+const GIT_EMPTY_PATH: &str = "NUL";
+#[cfg(not(any(unix, windows)))]
+const GIT_EMPTY_PATH: &str = "raster-empty-git-config";
+
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum GitFileStatus {
     Modified,
@@ -152,6 +161,7 @@ pub fn refresh_sync(root: &Path) -> GitSnapshot {
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let hooks_disabled = format!("core.hooksPath={GIT_EMPTY_PATH}");
     let mut command = Command::new("git");
     command
         .current_dir(root)
@@ -159,12 +169,12 @@ fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
             "-c",
             "core.fsmonitor=false",
             "-c",
-            "core.hooksPath=/dev/null",
+            hooks_disabled.as_str(),
             "--no-optional-locks",
         ])
         .args(args)
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", GIT_EMPTY_PATH)
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("LC_ALL", "C")
         .stdin(Stdio::null())
@@ -271,7 +281,7 @@ mod tests {
                     .current_dir(&path)
                     .args(args)
                     .env("GIT_CONFIG_NOSYSTEM", "1")
-                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_GLOBAL", GIT_EMPTY_PATH)
                     .env("GIT_AUTHOR_NAME", "Test")
                     .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
                     .env("GIT_COMMITTER_NAME", "Test")

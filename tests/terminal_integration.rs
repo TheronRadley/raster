@@ -132,7 +132,11 @@ fn shipped_replay_example_produces_a_plain_screen() {
             "--no-mouse",
             "--no-color",
             "--replay",
-            &format!("{}/examples/replay.txt", env!("CARGO_MANIFEST_DIR")),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("examples")
+                .join("replay.txt")
+                .to_str()
+                .unwrap(),
             "--dump-screen",
         ])
         .arg(&screen)
@@ -151,7 +155,10 @@ fn shipped_replay_example_produces_a_plain_screen() {
 #[test]
 fn untrusted_filename_and_content_never_emit_raw_sgr() {
     let dir = TestDir::new();
-    let path = dir.0.join("safe\x1b[31m\u{202e}.rs");
+    // Avoid backslashes and control characters in the filename: Windows
+    // treats `\` as a separator and rejects 0x1B in filenames. The status
+    // line below still exercises a real escape sequence.
+    let path = dir.0.join("safe_[31m_\u{202e}.rs");
     fs::write(&path, "let x = 1;\u{202e}\n").unwrap();
     let cli = CliOptions {
         no_session: true,

@@ -297,7 +297,7 @@ fn atomic_replace(
     let suffix = unique_suffix();
     let temp = parent.join(format!(".raster.tmp-{suffix}"));
     let journal_path = parent.join(format!(".raster-save-{suffix}.json"));
-    #[allow(unused_variables)]
+    #[cfg(windows)]
     let backup = parent.join(format!(".raster.bak-{suffix}"));
     let journal = SaveJournal {
         target: target.to_path_buf(),
@@ -377,7 +377,6 @@ fn write_in_place(
     ensure_dir(parent).map_err(io_error)?;
     let suffix = unique_suffix();
     let temp = parent.join(format!(".raster.tmp-{suffix}"));
-    #[allow(unused_variables)]
     let backup = parent.join(format!(".raster.bak-{suffix}"));
     let journal_path = parent.join(format!(".raster-save-{suffix}.json"));
     fs::copy(target, &backup).map_err(io_error)?;

@@ -612,6 +612,14 @@ pub fn uri_from_path(path: &Path) -> String {
     };
     let text = absolute.to_string_lossy().replace('\\', "/");
     let mut out = String::from("file://");
+    // A Windows drive path needs `file:///C:/...`, not `file://C:/...`.
+    // UNC paths already begin with `//` and keep the standard prefix.
+    #[cfg(windows)]
+    {
+        if text.as_bytes().get(1) == Some(&b':') {
+            out.push('/');
+        }
+    }
     for byte in text.as_bytes() {
         if byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b'-' | b'_' | b'.' | b'~') {
             out.push(*byte as char);
@@ -638,6 +646,15 @@ pub fn path_from_uri(uri: &str) -> Option<PathBuf> {
         }
     }
     let text = String::from_utf8(bytes).ok()?;
+    // Undo the extra slash used to make Windows drive-letter URIs absolute.
+    #[cfg(windows)]
+    let text = {
+        let mut text = text;
+        if text.as_bytes().first() == Some(&b'/') && text.as_bytes().get(2) == Some(&b':') {
+            text.remove(0);
+        }
+        text
+    };
     Some(PathBuf::from(text))
 }
 
@@ -1175,10 +1192,19 @@ mod tests {
 
     #[test]
     fn uri_round_trips_unicode_paths() {
-        let path = PathBuf::from("/tmp/مرحبا file.rs");
+        let path = std::env::temp_dir().join("مرحبا file.rs");
         let uri = uri_from_path(&path);
         assert!(uri.starts_with("file://"));
         assert!(!uri.contains(' '));
+        assert_eq!(path_from_uri(&uri), Some(path));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_drive_uri_round_trips() {
+        let path = PathBuf::from(r"C:\Users\raster\مرحبا file.rs");
+        let uri = uri_from_path(&path);
+        assert!(uri.starts_with("file:///"));
         assert_eq!(path_from_uri(&uri), Some(path));
     }
 
