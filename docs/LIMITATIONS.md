@@ -18,9 +18,9 @@ implied to be shipped.
    headless, unit, property, mock-LSP, fuzz, benchmark, formatter, linter, and
    release builds passed locally. Hosted Linux/macOS/Windows CI in
    [.github/workflows/ci.yml](../.github/workflows/ci.yml) has run on this PR;
-   all three OS jobs passed at commit `e37b0f8` after a Clippy 1.100 lint and
-   Windows-specific compile/test fixes. The later commit adds C/C++/Python
-   native checks; see the PR checks for its result. Windows console FFI and
+   all six push/PR jobs passed at commit `47aa6eb` after a Clippy 1.100 lint,
+   Windows-specific compile/test fixes, a Git Bash `link.exe` shadowing fix, and
+   C/C++/Python native checks. Windows console FFI and
    macOS Unix signal numbers are compiled/tested in CI but not exercised on a
    local device. Termux requires separate device validation.
 3. **Real language servers are not integration-tested.** The LSP client passes
@@ -84,11 +84,11 @@ implied to be shipped.
   50,000 deterministic fuzz operations; reproducible benchmarks.
 - **Local, partially checked:** `cargo check` with Rust 1.95.0 passed; the
   declared MSRV 1.88 exact toolchain was not installed.
-- **Hosted CI, run on this PR:** Linux/macOS/Windows fmt, clippy, tests,
-  release build, headless replay; Linux-only release tests, fuzz-target check,
-  PTY smoke, and small benchmark. All six push/PR checks passed at commit
-  `e37b0f8`; a later commit adds native C/C++/Python checks on all three OSes.
-  See the PR checks for the current head.
+- **Hosted CI, run on this PR:** Linux/macOS/Windows fmt, clippy, native
+  C/C++/Python checks, tests, release build, headless replay; Linux-only release
+  tests, fuzz-target check, PTY smoke with the C checksum library, and small
+  benchmark. All six push/PR checks passed at commit `47aa6eb`. See the PR
+  checks for the current head.
 - **Unverified:** local macOS/Windows interactive behavior, Termux, real LSP
   servers, terminal-emulator rendering cost, SSH/tmux latency, Arabic
   shaping/bidi, Windows ACL equivalence, release packaging installs.

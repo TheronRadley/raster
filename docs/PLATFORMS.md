@@ -6,9 +6,9 @@ alone.
 
 | Platform | Local validation in this sandbox | CI definition | Status |
 | --- | --- | --- | --- |
-| Linux x86_64 | `cargo fmt`, `cargo clippy -D warnings`, debug/release tests, release build, `--help`/`--version`/`--health`, headless replay, Linux PTY edit/save/resize/cleanup, mock-LSP tests, property/reference-model tests, mutation fuzz, native C/C++/Python checks, startup/bench measurements. | Ubuntu job in [.github/workflows/ci.yml](../.github/workflows/ci.yml) runs fmt, clippy, native checks, debug/release tests, release build, fuzz target check, headless replay, PTY smoke with the C checksum library, and a small benchmark. | **Locally validated.** Hosted Ubuntu push/PR jobs passed at `e37b0f8`; see PR checks for the latest commit, which adds native checks. |
-| macOS | Not run locally. | macOS job runs fmt, clippy, native checks, tests, release build, and headless replay. | **Not locally validated.** Hosted macOS push/PR jobs passed at `e37b0f8`; Unix `stty` raw mode, signal numbers, and suspend/resume still need device validation. |
-| Windows | Not run locally. `#[cfg(windows)]` console FFI was fixed after the first hosted run. | Windows job enables MSVC and runs fmt, clippy, native checks, tests, release build, and headless replay. | **Not locally validated.** Hosted Windows push/PR jobs passed at `e37b0f8`; interactive console mode save/restore and resize behavior still need device validation. |
+| Linux x86_64 | `cargo fmt`, `cargo clippy -D warnings`, debug/release tests, release build, `--help`/`--version`/`--health`, headless replay, Linux PTY edit/save/resize/cleanup, mock-LSP tests, property/reference-model tests, mutation fuzz, native C/C++/Python checks, startup/bench measurements. | Ubuntu job in [.github/workflows/ci.yml](../.github/workflows/ci.yml) runs fmt, clippy, native checks, debug/release tests, release build, fuzz target check, headless replay, PTY smoke with the C checksum library, and a small benchmark. | **Locally validated.** All six hosted push/PR checks passed at `47aa6eb`, including native checks. |
+| macOS | Not run locally. | macOS job runs fmt, clippy, native checks, tests, release build, and headless replay. | **Not locally validated.** All six hosted push/PR checks passed at `47aa6eb`, including native checks; Unix `stty` raw mode, signal numbers, and suspend/resume still need device validation. |
+| Windows | Not run locally. `#[cfg(windows)]` console FFI was fixed after the first hosted run. | Windows job enables MSVC and runs fmt, clippy, native checks, tests, release build, and headless replay. | **Not locally validated.** All six hosted push/PR checks passed at `47aa6eb` after Windows fixes; interactive console mode save/restore and resize behavior still need device validation. |
 | Android / Termux | Not run. | No CI job; separate manual validation required. | **Unverified.** Linux desktop results do not prove Termux behavior. |
 
 ## Local environment
@@ -22,10 +22,12 @@ alone.
   installed locally.
 - Sandbox-only build setting: `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` because
   the default linker path failed here. CI does not use this workaround.
-- Hosted CI uses current stable Rust (1.100.0 on the first passing run); the
-  local primary toolchain was 1.99.0. A Clippy 1.100 lint and Windows-specific
-  compile/test failures were fixed on this branch. Hosted jobs are not executed
-  inside this sandbox; see the PR checks for per-commit results.
+- Hosted CI uses current stable Rust (1.100.0 on the passing runs); the local
+  primary toolchain was 1.99.0. A Clippy 1.100 lint, Windows-specific
+  compile/test failures, and Git Bash `link.exe` shadowing were fixed on this
+  branch; MSVC native checks now run after all Rust builds. All six push/PR
+  checks passed at `47aa6eb`. Hosted jobs are not executed inside this sandbox;
+  see the PR checks for per-commit results.
 - Terminal for interactive PTY test: `xterm-256color`, 100x30, resized to
   40x10 and back, with `NO_COLOR=1`. Headless tests used no TTY and `TERM=dumb`.
 
