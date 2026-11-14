@@ -11,10 +11,12 @@ raster — a predictable terminal text editor
 
 Usage:
   raster [OPTIONS] [FILE[:LINE[:COL]] ...]
+  raster --shell
   raster --help
   raster --version
 
 Options:
+      --shell              Open the minimal command prompt (use alone).
   -h, --help               Show this help and exit.
   -V, --version            Show version and build information and exit.
       --config PATH        Load this TOML configuration file.

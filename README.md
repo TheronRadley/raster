@@ -1,6 +1,6 @@
 # Raster
 
-Raster is a predictable, nonmodal terminal text editor written in Rust. It is
+Raster is a minimal command prompt and nonmodal terminal text editor written in Rust. It is
 designed for everyday coding over SSH as well as locally: a quiet monochrome
 UI, familiar shortcuts, safe saves, and optional coding features that never
 block ordinary editing.
@@ -38,12 +38,40 @@ The tool is also usable on Linux/macOS with
 omits paths and document contents from its output. The source and limitations
 are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
-## Windows installer
+## Download for Windows
 
-A per-user x64 Windows installer is built by CI and can also be built from
-source using Inno Setup 6. See [docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64)
-for download, build, uninstall, and validation details. The installer is
-currently unsigned, and interactive Windows 10/11 use still needs device testing.
+[Download Raster for Windows x64 (ZIP)](https://github.com/TheronRadley/raster/actions/runs/43616362973/artifacts/14122875444)
+
+Extract the ZIP and run `Raster-Setup-0.1.0-x64.exe`. This is an unsigned CI
+build from commit `e2cd476`, not a published release; Windows SmartScreen may
+warn. GitHub sign-in may be required, and the artifact expires on February 12,
+2027. If it has expired, check the [CI runs](https://github.com/TheronRadley/raster/actions/workflows/ci.yml)
+for a newer successful run and its `raster-windows-x64-installer` artifact.
+
+The installer is per-user and targets 64-bit Windows 10/11. Interactive use on
+those desktop versions still needs device testing. See
+[docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64) for build,
+uninstall, and validation details.
+
+## Command prompt
+
+Run `raster --shell` for a clean prompt inside your existing terminal. On
+Windows the **Raster** Start menu shortcut opens this prompt; **Raster Editor**
+opens the editor directly. Type `help` to see Raster's built-in commands:
+`help`, `cd`, `edit`, and `exit`. For example:
+
+```text
+C:\Users\Anis> help
+C:\Users\Anis> edit notes.txt
+```
+
+`edit` returns to the prompt when you quit the editor. Other commands are
+passed to `cmd.exe /D /C` on Windows or `/bin/sh -c` on Unix. This intentionally
+runs the commands you type; do not run commands from untrusted sources. `cd`
+persists, but environment changes and other shell state from external commands
+do not persist between commands. Raster is not a terminal emulator or a full
+replacement for CMD, PowerShell, or a Unix shell. See
+[docs/SHELL.md](docs/SHELL.md) for limitations.
 
 ## First edit
 

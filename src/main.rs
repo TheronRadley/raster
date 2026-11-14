@@ -29,6 +29,14 @@ fn main() -> ExitCode {
 }
 
 fn run() -> io::Result<u8> {
+    // An explicit flag avoids stealing a real file named "shell".
+    let mut arguments = std::env::args_os().skip(1);
+    if arguments.next().as_deref() == Some(std::ffi::OsStr::new("--shell"))
+        && arguments.next().is_none()
+    {
+        raster::shell::run()?;
+        return Ok(0);
+    }
     let cli = CliOptions::from_env().map_err(to_io)?;
     if cli.show_help {
         print!("{HELP}");
