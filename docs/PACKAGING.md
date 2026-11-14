@@ -1,7 +1,7 @@
 # Packaging and installation
 
 An unsigned Windows x64 preview installer is available as a direct EXE from the
-[preview release](https://github.com/TheronRadley/raster/releases/tag/windows-preview-df316eb).
+[preview release](https://github.com/TheronRadley/raster/releases/tag/windows-preview-brand-20261114).
 It is not a stable or signed release. Source builds remain available on all
 platforms.
 
@@ -66,7 +66,7 @@ installer. The build itself requires the Rust/MSVC and Inno tools above.
 Windows CI builds the installer and tests silent installation, upgrade,
 `--version`, `--health`, and uninstallation, including preservation of an
 untracked file, and verifies the installed application and setup icons. Download
-the [preview installer EXE](https://github.com/TheronRadley/raster/releases/download/windows-preview-df316eb/Raster-Setup-0.1.0-x64.exe)
+the [preview installer EXE](https://github.com/TheronRadley/raster/releases/download/windows-preview-brand-20261114/Raster-Setup-0.1.0-x64.exe)
 directly. It is **unsigned**, so Windows SmartScreen may warn. CI artifacts are
 also available but expire and may require sign-in. CI uses
 Windows Server, not Windows 10 or 11 desktops. Interactive use and installer
