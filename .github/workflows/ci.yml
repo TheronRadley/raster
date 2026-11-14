@@ -98,6 +98,15 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Check Windows brand assets
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python scripts/check_brand_assets.py
+          else
+            python3 scripts/check_brand_assets.py
+          fi
+
       - name: Native C/C++/Python checks
         shell: bash
         run: |

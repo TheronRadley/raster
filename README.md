@@ -1,189 +1,87 @@
-# Raster
+<div align="center">
+  <img src="assets/raster-logo.png" alt="Raster logo" width="480">
+  <h1>Raster</h1>
+  <p>A minimal command prompt and terminal text editor.</p>
+  <p>
+    <a href="https://github.com/TheronRadley/raster/actions/workflows/ci.yml"><img src="https://github.com/TheronRadley/raster/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+    <a href="https://github.com/TheronRadley/raster/releases/tag/windows-preview-brand-20261114"><img src="https://img.shields.io/badge/Windows%20x64-preview-555555" alt="Windows x64 preview"></a>
+  </p>
+</div>
 
-<img src="assets/raster-logo.png" alt="Raster logo" width="480">
+## Download
 
-Raster is a minimal command prompt and nonmodal terminal text editor written in Rust. It is
-designed for everyday coding over SSH as well as locally: a quiet monochrome
-UI, familiar shortcuts, safe saves, and optional coding features that never
-block ordinary editing.
+**[Download the Windows x64 installer (.exe)](https://github.com/TheronRadley/raster/releases/download/windows-preview-brand-20261114/Raster-Setup-0.1.0-x64.exe)**
 
-> **Status:** this branch contains a working editor implementation and a large
-> test suite, but it is **not release-ready**. See
-> [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for exact gaps and the prioritized
-> roadmap. Do not treat unimplemented or unverified items as shipped.
+The installer targets 64-bit Windows 10 and 11 and installs per user. This is
+an **unsigned preview**; SmartScreen may warn, and interactive use on Windows
+10/11 desktops still needs testing. [Installation and build details](docs/PACKAGING.md).
 
-## C, C++, and Python source
+## Get started
 
-The editor itself is Rust; the native code is a separate verification tool, not
-part of the editor runtime. The tracked source files are
-[`native/raster_checksum.c`](native/raster_checksum.c) (C99),
-[`native/raster_checksum.h`](native/raster_checksum.h) (C API), and
-[`native/raster_checksum_cli.cpp`](native/raster_checksum_cli.cpp) (C++17).
-[`scripts/native_checks.py`](scripts/native_checks.py) builds and tests them.
-The C++ CLI hashes files in bounded memory using the C streaming API. See
-[docs/NATIVE.md](docs/NATIVE.md) for usage and platform requirements. FNV-1a is
-not a cryptographic hash.
+On Windows, open **Raster** from the Start menu for a clean command prompt.
+Type `help` to list the built-in commands, or `edit notes.txt` to open a file in
+the editor. Close the editor to return to the prompt. The **Raster Editor**
+shortcut opens the editor directly.
 
-## Windows diagnostics companion
-
-Raster runs in an existing terminal; it does not replace the terminal host.
-For a read-only summary of a health report, the optional C# companion requires
-.NET 10. On Windows, from the repository root:
-
-```bat
-cargo run --offline --locked --bin raster -- --health > health.json
-scripts\diagnose.cmd health.json
-```
-
-The tool is also usable on Linux/macOS with
-`dotnet run --project tools/Raster.Diagnostics -- health.json`. It deliberately
-omits paths and document contents from its output. The source and limitations
-are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
-
-## Download for Windows
-
-[Download Raster for Windows x64 (.exe)](https://github.com/TheronRadley/raster/releases/download/windows-preview-df316eb/Raster-Setup-0.1.0-x64.exe)
-
-Run the downloaded installer directly; no ZIP extraction is needed. This is an
-unsigned **preview release** built from commit `df316eb`, not a stable release;
-Windows SmartScreen may warn. See the [release page](https://github.com/TheronRadley/raster/releases/tag/windows-preview-df316eb)
-for details.
-
-The installer is per-user and targets 64-bit Windows 10/11. Interactive use on
-those desktop versions still needs device testing. See
-[docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64) for build,
-uninstall, and validation details.
-
-## Command prompt
-
-Run `raster --shell` for a clean prompt inside your existing terminal. On
-Windows the **Raster** Start menu shortcut opens this prompt; **Raster Editor**
-opens the editor directly. Type `help` to see Raster's built-in commands:
-`help`, `cd`, `edit`, and `exit`. For example:
-
-```text
-C:\Users\Anis> help
-C:\Users\Anis> edit notes.txt
-```
-
-`edit` returns to the prompt when you quit the editor. Other commands are
-passed to `cmd.exe /D /C` on Windows or `/bin/sh -c` on Unix. This intentionally
-runs the commands you type; do not run commands from untrusted sources. `cd`
-persists, but environment changes and other shell state from external commands
-do not persist between commands. Raster is not a terminal emulator or a full
-replacement for CMD, PowerShell, or a Unix shell. See
-[docs/SHELL.md](docs/SHELL.md) for limitations.
-
-## First edit
+From an existing terminal:
 
 ```sh
+raster --shell        # command prompt; type help to list commands
+raster notes.txt      # open a file in the editor
+raster --help         # command-line options
+```
+
+Raster runs inside your terminal; it is not a terminal emulator. The prompt
+passes other commands to the system shell. `cd` persists, but environment
+changes made by external commands do not. See the [shell guide](docs/SHELL.md).
+
+## Build from source
+
+Install a Rust toolchain with Cargo (minimum declared version: 1.88). On
+Windows, use the MSVC toolchain and Microsoft C++ Build Tools.
+
+```sh
+git clone https://github.com/TheronRadley/raster.git
+cd raster
 cargo build --release --locked --offline
-./target/release/raster notes.txt        # or just ./target/release/raster
-# type text, then Ctrl+S to save and Ctrl+Q to quit
-./target/release/raster --help           # CLI options and version
-./target/release/raster --health         # config/state paths as JSON
 ```
 
-With no path, Raster opens a small welcome buffer showing the essential
-shortcuts. Type immediately; there is no modal command gate. `Ctrl+O` opens a
-file prompt, `Ctrl+S` on a scratch buffer opens Save As, `F1` opens the full
-in-editor shortcut help, and `Ctrl+Shift+P` opens a searchable command palette.
-Dirty buffers ask for confirmation before quitting or reloading. Raster does
-not modify your shell configuration.
+The executable is `target/release/raster` on Unix and
+`target\release\raster.exe` on Windows. Runtime Rust dependencies are vendored;
+Cargo does not need registry access for this build. See
+[packaging](docs/PACKAGING.md) for installer builds.
 
-A deterministic headless frame is available without a TTY:
-
-```sh
-./target/release/raster --no-config --no-session --no-lsp --no-mouse \
-  --replay examples/replay.txt --dump-screen screen.txt
-```
-
-## Shortcut essentials
+## Editor shortcuts
 
 | Action | Keys |
 | --- | --- |
-| Save / quit / new / open | `Ctrl+S`, `Ctrl+Q`, `Ctrl+N`, `Ctrl+O` |
-| Undo / redo | `Ctrl+Z`, `Ctrl+Y` or `Ctrl+Shift+Z` |
-| Find / replace / next match | `Ctrl+F`, `Ctrl+R`, `F3`, `Shift+F3` |
-| Files / project search / commands | `Ctrl+P`, `Ctrl+Shift+F`, `Ctrl+Shift+P` |
-| Buffers / splits | `Ctrl+B`, `Ctrl+Tab`, `Ctrl+W v`, `Ctrl+W s`, `Ctrl+W h/j/k/l`, `Ctrl+W q` |
-| Selection / navigation | arrows, `Shift`+arrows, `Home`, `End`, `Ctrl+Home`, `Ctrl+End`, `Ctrl+A` |
-| Internal register | `Ctrl+C`, `Ctrl+X`, `Ctrl+V` |
-| System clipboard (opt-in) | `Ctrl+Shift+C`, `Ctrl+Shift+X`, `Ctrl+Shift+V` |
-| Help / cancel | `F1`, `Esc` |
+| Save / quit | `Ctrl+S` / `Ctrl+Q` |
+| Open / new buffer | `Ctrl+O` / `Ctrl+N` |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
+| Find / replace | `Ctrl+F` / `Ctrl+R` |
+| Files / commands | `Ctrl+P` / `Ctrl+Shift+P` |
+| Help / cancel | `F1` / `Esc` |
 
-`Ctrl+S` and `Ctrl+Q` require XON/XOFF flow control to be disabled; Raster does
-that in raw mode. If a terminal or multiplexer consumes them, use `:w` and
-`:q` in the palette or `Alt+:` command prompt. See
-[docs/SHORTCUTS.md](docs/SHORTCUTS.md) for the full reference and terminal
-ambiguities.
+See the [full shortcut reference](docs/SHORTCUTS.md) and
+[configuration guide](docs/CONFIG.md). Language servers and system clipboard
+integration are opt-in.
 
-## Configuration
+## Status
 
-Configuration is TOML. `raster --health` prints the active config and state
-paths. A commented, valid example is in
-[examples/config.toml](examples/config.toml). Notable defaults:
+Raster is under development. Full Arabic shaping and bidirectional rendering,
+real language-server testing, and interactive Windows, macOS, and Termux
+validation remain open. See [known limitations](docs/LIMITATIONS.md) and the
+[platform matrix](docs/PLATFORMS.md).
 
-- familiar `normal` profile; optional Vim-inspired and selection-first
-  profiles are partial and documented as such;
-- LSP disabled until the user explicitly installs and configures a server;
-  Raster never auto-installs servers, runs project scripts, or enables
-  project-local executable configuration;
-- internal registers are always available; system clipboard and OSC 52 are
-  off by default, and remote OSC 52 requires explicit `allow_remote`;
-- private local recovery and session metadata (no document contents in the
-  session file);
-- LF, CRLF, mixed newlines, and a missing final newline are preserved unless
-  the user explicitly requests conversion.
+## Documentation
 
-See [docs/CONFIG.md](docs/CONFIG.md) for all keys and validation rules.
-
-## What is implemented
-
-- Rope-backed shared buffers with exact transactions shared by typing,
-  replacement, multicursor edits, format, undo, and redo; no full-file copy per
-  keystroke.
-- Independent views/splits, soft wrap, horizontal scrolling, visual movement,
-  and edit transforms for selections, diagnostics, and viewport anchors.
-- Multiple buffers, command palette, fuzzy files, project search, lexical
-  syntax highlighting for Rust/C/C++/Go/Python, mouse reporting with disabled
-  fallback, and a compact tab/status UI.
-- Safe save/reopen, external-modification detection, read-only handling,
-  interrupted-save recovery, private recovery files, and session restoration.
-- Optional LSP client with negotiated UTF-8/UTF-16 position encoding, bounded
-  reads, timeouts, stale-response rejection, crash/flood handling, and
-  validated WorkspaceEdits. Basic editing continues if a server or grammar is
-  unavailable.
-- Lightweight Git branch/status/diff indicators; no destructive Git actions.
-- Headless replay, deterministic mutation fuzzing, reproducible engine and
-  frame benchmarks, mock-LSP tests, and a Linux PTY smoke test.
-
-Full Arabic shaping and bidi rendering are **not** implemented. Storage,
-grapheme boundaries, display widths, and cursor placement for Arabic and mixed
-scripts are tested; see [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
-
-## Checks and documentation
-
-Local checks on Linux are reported in
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md) and
-[docs/PLATFORMS.md](docs/PLATFORMS.md). Hosted CI for Linux, macOS, and Windows
-is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml) and has run
-on this PR; see the PR checks and [docs/PLATFORMS.md](docs/PLATFORMS.md) for the
-current result. Termux is a separate validation task.
-
-The editor core is Rust. A small, bounded verification layer uses C99 for a
-versioned checksum ABI, C++17 for a CLI that consumes it, and Python 3 for PTY
-orchestration and cross-language parity checks; it is not linked into the editor
-binary. See [docs/NATIVE.md](docs/NATIVE.md).
-
-Other documents: [architecture](docs/ARCHITECTURE.md),
-[shortcut reference](docs/SHORTCUTS.md), [configuration](docs/CONFIG.md),
-[performance](docs/PERFORMANCE.md), [platforms](docs/PLATFORMS.md),
-[native verification](docs/NATIVE.md),
-[limitations and roadmap](docs/LIMITATIONS.md), [packaging](docs/PACKAGING.md),
-[contributing](CONTRIBUTING.md), and [security policy](SECURITY.md).
+[Shell](docs/SHELL.md) · [Configuration](docs/CONFIG.md) ·
+[Shortcuts](docs/SHORTCUTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
+[Packaging](docs/PACKAGING.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
 ## License
 
-MIT. The original repository license is preserved. Vendored dependency notices
-are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE). Third-party notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
