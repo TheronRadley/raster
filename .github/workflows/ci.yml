@@ -100,6 +100,8 @@ jobs:
 
       - name: Test C# diagnostics (Windows)
         if: runner.os == 'Windows'
+        env:
+          Platform: AnyCPU
         run: |
           dotnet build tools/Raster.Diagnostics/Raster.Diagnostics.csproj --configuration Release
           python scripts/test_diagnostics.py tools/Raster.Diagnostics/bin/Release/net10.0/Raster.Diagnostics.dll health.json
