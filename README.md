@@ -1,6 +1,6 @@
 # Raster
 
-Raster is a predictable, nonmodal terminal text editor written in Rust. It is
+Raster is a minimal command prompt and nonmodal terminal text editor written in Rust. It is
 designed for everyday coding over SSH as well as locally: a quiet monochrome
 UI, familiar shortcuts, safe saves, and optional coding features that never
 block ordinary editing.
@@ -44,6 +44,26 @@ A per-user x64 Windows installer is built by CI and can also be built from
 source using Inno Setup 6. See [docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64)
 for download, build, uninstall, and validation details. The installer is
 currently unsigned, and interactive Windows 10/11 use still needs device testing.
+
+## Command prompt
+
+Run `raster --shell` for a clean prompt inside your existing terminal. On
+Windows the **Raster** Start menu shortcut opens this prompt; **Raster Editor**
+opens the editor directly. Type `help` to see Raster's built-in commands:
+`help`, `cd`, `edit`, and `exit`. For example:
+
+```text
+C:\Users\Anis> help
+C:\Users\Anis> edit notes.txt
+```
+
+`edit` returns to the prompt when you quit the editor. Other commands are
+passed to `cmd.exe /D /C` on Windows or `/bin/sh -c` on Unix. This intentionally
+runs the commands you type; do not run commands from untrusted sources. `cd`
+persists, but environment changes and other shell state from external commands
+do not persist between commands. Raster is not a terminal emulator or a full
+replacement for CMD, PowerShell, or a Unix shell. See
+[docs/SHELL.md](docs/SHELL.md) for limitations.
 
 ## First edit
 

@@ -37,5 +37,6 @@ Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Raster"; Filename: "{app}\raster.exe"; WorkingDir: "{userdocs}"; Comment: "Open the Raster terminal editor"
+Name: "{group}\Raster"; Filename: "{app}\raster.exe"; Parameters: "--shell"; WorkingDir: "{userdocs}"; Comment: "Open the Raster command prompt"
+Name: "{group}\Raster Editor"; Filename: "{app}\raster.exe"; WorkingDir: "{userdocs}"; Comment: "Open the Raster terminal editor"
 Name: "{group}\Uninstall Raster"; Filename: "{uninstallexe}"

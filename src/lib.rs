@@ -13,5 +13,6 @@ pub mod json;
 pub mod lsp;
 pub mod position;
 pub mod session;
+pub mod shell;
 pub mod term;
 pub mod util;

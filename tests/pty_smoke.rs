@@ -52,3 +52,25 @@ fn interactive_pty_edits_saves_resizes_and_restores_terminal() {
         );
     }
 }
+
+#[test]
+fn prompt_help_opens_editor_and_returns_to_prompt() {
+    let python = std::env::var("RASTER_PYTHON").unwrap_or_else(|_| "python3".into());
+    let output = match Command::new(&python)
+        .args(["scripts/shell_pty_smoke.py", env!("CARGO_BIN_EXE_raster")])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("PTY smoke test unavailable: {python} not found");
+            return;
+        }
+        Err(error) => panic!("failed to run PTY smoke test: {error}"),
+    };
+    assert!(
+        output.status.success(),
+        "shell PTY smoke failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

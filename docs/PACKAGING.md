@@ -43,9 +43,11 @@ The Inno Setup installer targets **64-bit Windows 10 and 11**. By default it
 installs per-user into `%LOCALAPPDATA%\Programs\Raster` without administrator
 rights, adds Start menu shortcuts, and provides an uninstaller. It does **not**
 modify PATH, register file associations, or delete editor configuration,
-sessions, or recovery data on uninstall. The installed app is a terminal
-editor, not a graphical window. Start it from the Start menu or run
-`& "$env:LOCALAPPDATA\Programs\Raster\raster.exe"` in PowerShell.
+sessions, or recovery data on uninstall. The installed app runs in a terminal, not a graphical window. The **Raster**
+Start menu shortcut opens the command prompt; **Raster Editor** opens the
+editor directly. In PowerShell, run
+`& "$env:LOCALAPPDATA\Programs\Raster\raster.exe" --shell` for the prompt,
+or omit `--shell` for the editor.
 
 To build the installer on x64 Windows, install Rust's MSVC toolchain, Microsoft
 C++ Build Tools and [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:

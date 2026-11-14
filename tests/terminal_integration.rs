@@ -205,3 +205,60 @@ fn resize_during_dialog_and_nested_splits_have_bounded_layout() {
     assert_eq!(frame.render_plain().lines().count(), 24);
     editor.execute(EditorCommand::new(CommandId::EqualizeSplits));
 }
+
+#[test]
+fn minimal_shell_lists_commands_and_persists_cd() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = TestDir::new();
+    let target = dir.0.join("folder with spaces");
+    fs::create_dir(&target).unwrap();
+    let mut child = raster_command(&dir)
+        .arg("--shell")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(
+        child.stdin.take().unwrap(),
+        "help\ncd \"{}\"\ncd\necho raster-shell-ok\nexit\n",
+        target.display()
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("Raster commands:"));
+    assert!(text.contains("edit [file]"));
+    assert!(text.contains(&*target.to_string_lossy()));
+    assert!(text.contains("raster-shell-ok"));
+    assert!(!text.contains("F1 help"));
+}
+
+#[test]
+fn shell_requires_explicit_flag_and_editor_needs_terminal() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = TestDir::new();
+    let mut child = raster_command(&dir)
+        .arg("--shell")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(child.stdin.take().unwrap(), "edit a.txt\nexit\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires an interactive terminal"));
+    let bad = raster_command(&dir)
+        .args(["--shell", "notes.txt"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}
