@@ -1,7 +1,8 @@
 # Packaging and installation
 
-No release has been published and no prebuilt release assets exist yet. The
-reproducible source build is the supported installation path on this branch.
+No release has been published. Windows x64 installer builds are available as
+unsigned CI artifacts on successful runs; they are not signed release assets.
+Source builds remain available on all platforms.
 
 ## Prerequisites
 
@@ -35,6 +36,40 @@ The release build produces:
 | `mock-lsp` | Test-only JSON-RPC server used by integration tests. |
 
 On Windows, each binary has a `.exe` suffix.
+
+## Windows installer (x64)
+
+The Inno Setup installer targets **64-bit Windows 10 and 11**. By default it
+installs per-user into `%LOCALAPPDATA%\Programs\Raster` without administrator
+rights, adds Start menu shortcuts, and provides an uninstaller. It does **not**
+modify PATH, register file associations, or delete editor configuration,
+sessions, or recovery data on uninstall. The installed app is a terminal
+editor, not a graphical window. Start it from the Start menu or run
+`& "$env:LOCALAPPDATA\Programs\Raster\raster.exe"` in PowerShell.
+
+To build the installer on x64 Windows, install Rust's MSVC toolchain, Microsoft
+C++ Build Tools and [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```powershell
+.\packaging\windows\build-installer.ps1
+```
+
+The script compiles only the editor for `x86_64-pc-windows-msvc`, then produces
+`target\installer\Raster-Setup-<version>-x64.exe`. If Inno Setup is installed
+elsewhere, supply `-InnoCompiler "C:\path\to\ISCC.exe"`. No .NET, Python,
+C/C++ helper library, or Rust toolchain is required on the machine running the
+installer. The build itself requires the Rust/MSVC and Inno tools above.
+
+Windows CI builds the installer and tests silent installation, upgrade,
+`--version`, `--health`, and uninstallation, including preservation of an
+untracked file. Download `raster-windows-x64-installer` from a successful
+GitHub Actions run; artifacts may expire and may require GitHub sign-in. The
+executable is **unsigned**, so Windows SmartScreen may warn. Verify its source
+before running it; do not assume it is an official signed release. CI uses
+Windows Server, not Windows 10 or 11 desktops. Interactive use and installer
+behavior on actual Windows 10/11 devices, accessibility, ARM64 emulation, and
+code signing still require validation. 32-bit Windows is not supported by this
+installer.
 
 ## Install with Cargo
 
@@ -73,7 +108,8 @@ should include:
 on Linux, macOS, and Windows and uploads them as workflow artifacts named
 `raster-binaries-<runner OS>`. It also uploads generated health/startup/
 benchmark/PTY/native-check/replay artifacts where available. These are CI build
-outputs, not signed or published releases. The workflow runs in hosted GitHub
+outputs, not signed or published releases. On Windows it also uploads the
+`raster-windows-x64-installer` artifact. The workflow runs in hosted GitHub
 Actions, not inside this sandbox; see the PR checks for current results.
 
 ## Cross-compilation and Termux

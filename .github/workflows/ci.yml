@@ -71,6 +71,27 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo run --quiet --offline --locked --bin raster-fuzz -- --seed 90578502313330 --iterations 100 --max-ops 40
 
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/windows/build-installer.ps1
+
+      - name: Test Windows installer and uninstaller
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem target/installer/Raster-Setup-*-x64.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one installer' }
+          ./packaging/windows/test-installer.ps1 -Installer $installers[0].FullName
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: raster-windows-x64-installer
+          path: target/installer/Raster-Setup-*-x64.exe
+          if-no-files-found: error
+
       # Enable MSVC after the Rust steps. With the dev-cmd PATH active, Git
       # Bash's /usr/bin/link.exe can shadow the MSVC linker used by Cargo.
       - name: Enable MSVC for native checks (Windows)
