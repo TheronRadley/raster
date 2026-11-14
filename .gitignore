@@ -40,3 +40,7 @@ bench-ci-1mib.json
 pty-smoke.json
 native-checks.json
 screen.txt
+
+# .NET diagnostics companion build outputs
+/tools/Raster.Diagnostics/bin/
+/tools/Raster.Diagnostics/obj/

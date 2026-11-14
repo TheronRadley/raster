@@ -28,6 +28,11 @@ extern "C" {
 /* FNV-1a 64-bit over `length` bytes. A null pointer with length 0 is valid. */
 RASTER_API uint64_t raster_fnv1a64(const uint8_t *data, size_t length);
 
+/* Incremental FNV-1a: start with the offset basis, then update with chunks.
+ * data must point to at least length bytes, unless length is zero. */
+RASTER_API uint64_t raster_fnv1a64_init(void);
+RASTER_API uint64_t raster_fnv1a64_update(uint64_t state, const uint8_t *data, size_t length);
+
 /* Bump when the exported ABI changes; verification tooling checks this value. */
 RASTER_API uint32_t raster_checksum_abi_version(void);
 

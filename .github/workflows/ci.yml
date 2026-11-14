@@ -92,6 +92,23 @@ jobs:
           fi
           "$PY" scripts/native_checks.py --build-dir target/native --output native-checks.json
 
+      - name: Install .NET SDK for diagnostics (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test C# diagnostics (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          dotnet build tools/Raster.Diagnostics/Raster.Diagnostics.csproj --configuration Release
+          python scripts/test_diagnostics.py tools/Raster.Diagnostics/bin/Release/net10.0/Raster.Diagnostics.dll health.json
+
+      - name: Test Windows batch entry point
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call scripts\diagnose.cmd health.json
+
       - name: Interactive PTY smoke test (Linux)
         if: runner.os == 'Linux'
         run: python3 scripts/pty_smoke.py --binary target/debug/raster --native-lib target/native/libraster_checksum.so --output pty-smoke.json
