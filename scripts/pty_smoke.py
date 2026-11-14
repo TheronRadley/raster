@@ -46,7 +46,7 @@ def native_fnv1a(library_path):
     abi = library.raster_checksum_abi_version
     abi.argtypes = []
     abi.restype = ctypes.c_uint32
-    if abi() != 1:
+    if abi() != 2:
         raise RuntimeError("unsupported raster checksum ABI version")
 
     def digest(data):

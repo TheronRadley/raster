@@ -158,6 +158,12 @@ def load_native(plan):
     checksum = library.raster_fnv1a64
     checksum.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
     checksum.restype = ctypes.c_uint64
+    init = library.raster_fnv1a64_init
+    init.argtypes = []
+    init.restype = ctypes.c_uint64
+    update = library.raster_fnv1a64_update
+    update.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
+    update.restype = ctypes.c_uint64
     abi = library.raster_checksum_abi_version
     abi.argtypes = []
     abi.restype = ctypes.c_uint32
@@ -168,7 +174,17 @@ def load_native(plan):
         buffer = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         return int(checksum(buffer, len(data)))
 
-    return native_hash, int(abi())
+    def native_stream(chunks):
+        state = init()
+        for chunk in chunks:
+            if chunk:
+                buffer = (ctypes.c_uint8 * len(chunk)).from_buffer_copy(chunk)
+                state = update(state, buffer, len(chunk))
+            else:
+                state = update(state, None, 0)
+        return int(state)
+
+    return native_hash, native_stream, int(abi())
 
 
 def cli_env(build):
@@ -216,7 +232,7 @@ def main():
 
     plan = compiler_plan(build)
     build_artifacts(plan, build)
-    native_hash, abi_version = load_native(plan)
+    native_hash, native_stream, abi_version = load_native(plan)
 
     vectors = {
         "empty": b"",
@@ -224,7 +240,7 @@ def main():
         "unicode": "مرحبا 😀\n".encode("utf-8"),
         "pty_saved_bytes": EXPECTED_PTY_BYTES,
     }
-    checks = {"c_abi_version": abi_version == 1}
+    checks = {"c_abi_version": abi_version == 2}
     for name, data in vectors.items():
         checks[f"c_matches_python_{name}"] = native_hash(data) == py_fnv1a(data)
 
@@ -233,6 +249,22 @@ def main():
     checks["cpp_cli_matches_python_empty"] = empty_digest == py_fnv1a(b"")
     checks["cpp_cli_matches_python_sample"] = sample_digest == py_fnv1a(EXPECTED_PTY_BYTES)
     checks["cpp_cli_matches_c_sample"] = sample_digest == native_hash(EXPECTED_PTY_BYTES)
+
+    # Exercise incremental updates, including zero-length chunks and the CLI's
+    # exact 64 KiB boundary and multiple reads.
+    for size in (0, 1, 65535, 65536, 65537, 131072, 131073):
+        data = bytes(range(256)) * (size // 256) + bytes(range(size % 256))
+        reference = py_fnv1a(data)
+        chunks = [b"", data[:17], b"", data[17:65536], data[65536:], b""]
+        checks[f"c_stream_{size}"] = native_stream(chunks) == reference == native_hash(data)
+        checks[f"cpp_cli_stream_{size}"] = cli_digest(plan, build, data) == reference
+
+    with tempfile.TemporaryDirectory(prefix="raster-native-errors-") as temp:
+        missing = Path(temp) / "missing.bin"
+        result = subprocess.run([str(plan["cli"]), str(missing)], env=cli_env(build), capture_output=True)
+        checks["cpp_cli_missing_file_fails"] = result.returncode != 0 and not result.stdout
+        result = subprocess.run([str(plan["cli"])], env=cli_env(build), capture_output=True)
+        checks["cpp_cli_invalid_usage_fails"] = result.returncode == 2 and not result.stdout
 
     artifact_present, artifact_matches = artifact_hash_checks(native_hash)
     checks["pty_artifact_present"] = artifact_present

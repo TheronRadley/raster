@@ -487,11 +487,12 @@ mod tests {
                 timestamp_ms: 0,
             });
         }
-        assert!(wait_for_file(manager.dir()));
-        std::thread::sleep(Duration::from_millis(50));
-        let records = manager.recover_all();
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].document.text(), "new");
+        // Joining the worker on drop drains pending snapshots, regardless of
+        // whether it started writing the old snapshot before the new submit.
+        let path = recovery_path(manager.dir(), manager.session_id(), 1);
+        drop(manager);
+        let record = read_recovery_file(&path).unwrap();
+        assert_eq!(record.document.text(), "new");
     }
 
     #[test]

@@ -10,6 +10,34 @@ block ordinary editing.
 > [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for exact gaps and the prioritized
 > roadmap. Do not treat unimplemented or unverified items as shipped.
 
+## C, C++, and Python source
+
+The editor itself is Rust; the native code is a separate verification tool, not
+part of the editor runtime. The tracked source files are
+[`native/raster_checksum.c`](native/raster_checksum.c) (C99),
+[`native/raster_checksum.h`](native/raster_checksum.h) (C API), and
+[`native/raster_checksum_cli.cpp`](native/raster_checksum_cli.cpp) (C++17).
+[`scripts/native_checks.py`](scripts/native_checks.py) builds and tests them.
+The C++ CLI hashes files in bounded memory using the C streaming API. See
+[docs/NATIVE.md](docs/NATIVE.md) for usage and platform requirements. FNV-1a is
+not a cryptographic hash.
+
+## Windows diagnostics companion
+
+Raster runs in an existing terminal; it does not replace the terminal host.
+For a read-only summary of a health report, the optional C# companion requires
+.NET 10. On Windows, from the repository root:
+
+```bat
+cargo run --offline --locked --bin raster -- --health > health.json
+scripts\diagnose.cmd health.json
+```
+
+The tool is also usable on Linux/macOS with
+`dotnet run --project tools/Raster.Diagnostics -- health.json`. It deliberately
+omits paths and document contents from its output. The source and limitations
+are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+
 ## First edit
 
 ```sh

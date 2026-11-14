@@ -13,6 +13,11 @@ clear advantage.
 | C++17 | `native/raster_checksum_cli.cpp` command-line file hasher | Exercises C/C++ interop and provides a standalone manual verification tool |
 | Python 3 | `scripts/pty_smoke.py`, `scripts/native_checks.py` | PTY orchestration, compiler discovery, `ctypes` ABI validation, and cross-checking committed artifacts |
 
+The C ABI is version 2: the original one-shot function remains available, and
+`raster_fnv1a64_init` / `raster_fnv1a64_update` support incremental hashing.
+The C++ CLI reads fixed-size chunks instead of loading an entire file, checks
+for I/O errors, and has memory use independent of file size.
+
 The checksum is FNV-1a 64-bit, the same non-cryptographic digest used by the
 Linux PTY smoke test to prove that saved bytes are exact. It is a verification
 aid, **not** a security primitive and not a tamper-proof hash. See
@@ -26,9 +31,10 @@ aid, **not** a security primitive and not a tamper-proof hash. See
    on Linux/macOS, MSVC `cl.exe` on Windows; CI enables the MSVC environment).
 2. Loads the C library with Python `ctypes` and checks the exported ABI version.
 3. Compares the C library against a pure-Python FNV-1a reference for empty,
-   ASCII, Unicode, and exact PTY saved-byte inputs.
-4. Runs the C++ CLI on temporary files and compares its hex digest to both the
-   Python reference and the C library.
+   ASCII, Unicode, and exact PTY saved-byte inputs, and tests streaming updates.
+4. Runs the C++ CLI on temporary files, including inputs around the 64 KiB
+   chunk boundary, and compares its digest to Python and C. It also tests error
+   exits for missing files and invalid usage.
 5. Cross-checks `docs/performance/pty_smoke.json` against the C library.
 
 `scripts/pty_smoke.py` can optionally use the C library with `--native-lib`;
