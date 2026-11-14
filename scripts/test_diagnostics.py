@@ -11,7 +11,7 @@ def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_diagnostics.py <diagnostics.dll> <real-health.json>")
     dll, health_path = sys.argv[1:]
-    command = ["dotnet", dll]
+    command = ["dotnet", str(Path(dll).resolve())]
     report = json.loads(Path(health_path).read_text(encoding="utf-8"))
     secret = "private-path-do-not-print"
     report["config_path"] = secret
