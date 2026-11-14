@@ -1,5 +1,7 @@
 # Raster
 
+<img src="assets/raster-logo.png" alt="Raster logo" width="480">
+
 Raster is a minimal command prompt and nonmodal terminal text editor written in Rust. It is
 designed for everyday coding over SSH as well as locally: a quiet monochrome
 UI, familiar shortcuts, safe saves, and optional coding features that never
