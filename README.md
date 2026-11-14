@@ -42,13 +42,12 @@ are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
 ## Download for Windows
 
-[Download Raster for Windows x64 (ZIP)](https://github.com/TheronRadley/raster/actions/runs/43616362973/artifacts/14122875444)
+[Download Raster for Windows x64 (.exe)](https://github.com/TheronRadley/raster/releases/download/windows-preview-df316eb/Raster-Setup-0.1.0-x64.exe)
 
-Extract the ZIP and run `Raster-Setup-0.1.0-x64.exe`. This is an unsigned CI
-build from commit `e2cd476`, not a published release; Windows SmartScreen may
-warn. GitHub sign-in may be required, and the artifact expires on February 12,
-2027. If it has expired, check the [CI runs](https://github.com/TheronRadley/raster/actions/workflows/ci.yml)
-for a newer successful run and its `raster-windows-x64-installer` artifact.
+Run the downloaded installer directly; no ZIP extraction is needed. This is an
+unsigned **preview release** built from commit `df316eb`, not a stable release;
+Windows SmartScreen may warn. See the [release page](https://github.com/TheronRadley/raster/releases/tag/windows-preview-df316eb)
+for details.
 
 The installer is per-user and targets 64-bit Windows 10/11. Interactive use on
 those desktop versions still needs device testing. See
