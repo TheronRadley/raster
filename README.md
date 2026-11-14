@@ -38,12 +38,20 @@ The tool is also usable on Linux/macOS with
 omits paths and document contents from its output. The source and limitations
 are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
-## Windows installer
+## Download for Windows
 
-A per-user x64 Windows installer is built by CI and can also be built from
-source using Inno Setup 6. See [docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64)
-for download, build, uninstall, and validation details. The installer is
-currently unsigned, and interactive Windows 10/11 use still needs device testing.
+[Download Raster for Windows x64 (ZIP)](https://github.com/TheronRadley/raster/actions/runs/43616362973/artifacts/14122875444)
+
+Extract the ZIP and run `Raster-Setup-0.1.0-x64.exe`. This is an unsigned CI
+build from commit `e2cd476`, not a published release; Windows SmartScreen may
+warn. GitHub sign-in may be required, and the artifact expires on February 12,
+2027. If it has expired, check the [CI runs](https://github.com/TheronRadley/raster/actions/workflows/ci.yml)
+for a newer successful run and its `raster-windows-x64-installer` artifact.
+
+The installer is per-user and targets 64-bit Windows 10/11. Interactive use on
+those desktop versions still needs device testing. See
+[docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64) for build,
+uninstall, and validation details.
 
 ## Command prompt
 
