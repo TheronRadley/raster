@@ -116,6 +116,9 @@ impl Frame {
                 break;
             }
             for offset in 0..width {
+                self.clear_glyph_at(row, col + used + offset);
+            }
+            for offset in 0..width {
                 let index = row * self.width + col + used + offset;
                 self.cells[index] = Cell {
                     text: if offset == 0 {
@@ -133,6 +136,20 @@ impl Frame {
         used
     }
 
+    // Overwriting either half of a wide glyph must erase the whole glyph;
+    // otherwise its stale continuation makes later output shift or disappear.
+    fn clear_glyph_at(&mut self, row: usize, col: usize) {
+        let row_start = row * self.width;
+        let mut start = col;
+        while start > 0 && self.cells[row_start + start].continuation {
+            start -= 1;
+        }
+        let width = self.cells[row_start + start].width.max(1);
+        for offset in 0..width.min(self.width - start) {
+            self.cells[row_start + start + offset] = Cell::blank();
+        }
+    }
+
     pub fn fill(&mut self, row: usize, style: Style) {
         if row >= self.height {
             return;
@@ -146,6 +163,9 @@ impl Frame {
     }
 
     pub fn cell(&self, row: usize, col: usize) -> Option<(&str, Style)> {
+        if row >= self.height || col >= self.width {
+            return None;
+        }
         self.cells
             .get(row * self.width + col)
             .map(|c| (c.text.as_str(), c.style))
@@ -154,7 +174,7 @@ impl Frame {
     /// Render as ANSI bytes. Escape bytes come only from this function.
     pub fn render_ansi(&self, styling: bool) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.cells.len().saturating_mul(4).saturating_add(256));
-        out.extend_from_slice(b"\x1b[H\x1b[J\x1b[?25l");
+        out.extend_from_slice(b"\x1b[H\x1b[?25l");
         for row in 0..self.height {
             out.extend_from_slice(format!("\x1b[{};1H\x1b[K", row + 1).as_bytes());
             let mut col = 0usize;
@@ -175,7 +195,7 @@ impl Frame {
                 } else {
                     Style::Plain
                 };
-                if (styling || essential) && effective_style != last_style {
+                if effective_style != last_style {
                     out.extend_from_slice(effective_style.sgr().as_bytes());
                     last_style = effective_style;
                 }
@@ -252,6 +272,27 @@ mod tests {
         let used = frame.set(0, 0, "😀ab", Style::Dim, 6);
         assert_eq!(used, 4);
         assert_eq!(frame.render_plain().lines().next(), Some("😀ab  "));
+    }
+
+    #[test]
+    fn overwriting_either_half_of_a_wide_glyph_clears_the_other_half() {
+        for col in [0, 1] {
+            let mut frame = Frame::new(5, 1, false);
+            frame.set(0, 0, "😀xy", Style::Plain, 5);
+            frame.set(0, col, "A", Style::Bold, 1);
+            let expected = if col == 0 { "A xy " } else { " Axy " };
+            assert_eq!(frame.render_plain().lines().next(), Some(expected));
+            assert_eq!(frame.cell(0, 5), None);
+        }
+    }
+
+    #[test]
+    fn essential_style_resets_before_plain_text_without_styling() {
+        let mut frame = Frame::new(3, 1, false);
+        frame.set(0, 0, "A", Style::Reverse, 1);
+        frame.set(0, 1, "B", Style::Plain, 1);
+        let ansi = String::from_utf8(frame.render_ansi(false)).unwrap();
+        assert!(ansi.contains("\x1b[7mA\x1b[0mB"), "{ansi:?}");
     }
 
     #[test]

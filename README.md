@@ -85,7 +85,7 @@ A deterministic headless frame is available without a TTY:
 
 `Ctrl+S` and `Ctrl+Q` require XON/XOFF flow control to be disabled; Raster does
 that in raw mode. If a terminal or multiplexer consumes them, use `:w` and
-`:q` in the palette or `:` command prompt. See
+`:q` in the palette or `Alt+:` command prompt. See
 [docs/SHORTCUTS.md](docs/SHORTCUTS.md) for the full reference and terminal
 ambiguities.
 

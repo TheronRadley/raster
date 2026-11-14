@@ -146,6 +146,14 @@ def run(binary, output_path, keep_work=False, native_lib=None):
         if not checks["first_frame"]:
             raise RuntimeError("first frame did not appear")
         idle_rss = rss_kib(pid)
+        # Split a UTF-8 character across reads, then remove it. Exact saved
+        # bytes below catch either corruption or a missed backspace.
+        os.write(master, b"\xc3")
+        time.sleep(0.02)
+        os.write(master, b"\xa9")
+        time.sleep(0.15)
+        os.write(master, b"\x7f")
+        time.sleep(0.15)
         # Ordinary typing + exact undo/redo.
         os.write(master, b"abc")
         time.sleep(0.15)
@@ -154,7 +162,11 @@ def run(binary, output_path, keep_work=False, native_lib=None):
         os.write(master, b"\x19")  # Ctrl+Y
         time.sleep(0.15)
         # Bracketed paste is inserted as text, not interpreted as commands.
-        os.write(master, "\x1b[200~Pasted مرحبا 😀\x1b[201~".encode("utf-8"))
+        os.write(master, "\x1b[200~Pasted مرحبا 😀".encode("utf-8"))
+        # The closing marker may be split across terminal reads.
+        os.write(master, b"\x1b[20")
+        time.sleep(0.15)
+        os.write(master, b"1~")
         checks["paste_frame"] = wait_for_text(master, captured, "Pasted".encode("utf-8"), 5.0)
         # Help overlay and dismiss; then resize while still in a dialog.
         os.write(master, b"\x1bOP")  # F1

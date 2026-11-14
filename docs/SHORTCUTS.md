@@ -117,8 +117,9 @@ editing when the optional service is unavailable.
 
 ## Named commands and `:`
 
-Typing `:` opens a named-command prompt; `Ctrl+Shift+P` searches the same
-command vocabulary. Arguments are split without a shell. Common aliases:
+In the normal profile, typing `:` inserts a colon. `Alt+:` opens the
+named-command prompt; in Vim normal mode, `:` opens it. `Ctrl+Shift+P`
+searches the same command vocabulary. Arguments are split without a shell. Common aliases:
 
 | Command | Alias / example |
 | --- | --- |
