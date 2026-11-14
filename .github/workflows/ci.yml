@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CARGO_NET_OFFLINE: "true"
+      RUST_BACKTRACE: "1"
+      TERM: xterm-256color
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust with rustfmt and clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt -p raster -- --check
+
+      - name: Clippy with warnings denied
+        run: cargo clippy --offline --locked -p raster --all-targets -- -D warnings
+
+      - name: Debug tests
+        run: cargo test --offline --locked
+
+      - name: Release build
+        run: cargo build --release --offline --locked
+
+      - name: Health check
+        run: cargo run --quiet --offline --locked --bin raster -- --no-config --health > health.json
+
+      - name: Startup measurement
+        run: cargo run --quiet --offline --locked --bin raster -- --no-config --bench-startup > startup-ci.json
+
+      - name: Headless input replay
+        run: |
+          cargo run --quiet --offline --locked --bin raster -- \
+            --no-config --no-session --no-lsp --no-mouse --no-color \
+            --replay examples/replay.txt --dump-screen screen.txt
+          test -s screen.txt
+
+      - name: Small reproducible benchmark
+        run: cargo run --quiet --offline --locked --bin raster-bench -- --size-mib 1 --iterations 20 --seed 90578502313330 --output bench-ci-1mib.json
+
+      - name: Release tests (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test --offline --locked --release
+
+      - name: Fuzz target compile check (Linux)
+        if: runner.os == 'Linux'
+        run: cargo check --offline --locked --manifest-path fuzz/Cargo.toml
+
+      - name: Deterministic mutation fuzz (Linux)
+        if: runner.os == 'Linux'
+        run: cargo run --quiet --offline --locked --bin raster-fuzz -- --seed 90578502313330 --iterations 100 --max-ops 40
+
+      # Enable MSVC after the Rust steps. With the dev-cmd PATH active, Git
+      # Bash's /usr/bin/link.exe can shadow the MSVC linker used by Cargo.
+      - name: Enable MSVC for native checks (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Native C/C++/Python checks
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PY=python
+          elif command -v python3 >/dev/null 2>&1; then
+            PY=python3
+          elif command -v python >/dev/null 2>&1; then
+            PY=python
+          else
+            echo "Python 3 is required for native checks" >&2
+            exit 1
+          fi
+          "$PY" scripts/native_checks.py --build-dir target/native --output native-checks.json
+
+      - name: Interactive PTY smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: python3 scripts/pty_smoke.py --binary target/debug/raster --native-lib target/native/libraster_checksum.so --output pty-smoke.json
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: raster-binaries-${{ runner.os }}
+          path: |
+            target/release/raster*
+            target/release/mock-lsp*
+          if-no-files-found: error
+
+      - name: Upload measurement artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: raster-measurements-${{ runner.os }}
+          path: |
+            health.json
+            startup-ci.json
+            bench-ci-1mib.json
+            pty-smoke.json
+            native-checks.json
+            screen.txt
+          if-no-files-found: ignore

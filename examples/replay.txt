@@ -1,0 +1,11 @@
+# Deterministic headless input replay. Run:
+# raster --no-config --no-session --no-lsp --no-mouse --no-color \
+#   --replay examples/replay.txt --dump-screen screen.txt
+paste:مرحبا 😀
+key:ctrl+z
+key:ctrl+y
+resize:40x10
+key:f1
+key:esc
+resize:80x24
+tick
