@@ -38,6 +38,13 @@ The tool is also usable on Linux/macOS with
 omits paths and document contents from its output. The source and limitations
 are described in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
+## Windows installer
+
+A per-user x64 Windows installer is built by CI and can also be built from
+source using Inno Setup 6. See [docs/PACKAGING.md](docs/PACKAGING.md#windows-installer-x64)
+for download, build, uninstall, and validation details. The installer is
+currently unsigned, and interactive Windows 10/11 use still needs device testing.
+
 ## First edit
 
 ```sh
