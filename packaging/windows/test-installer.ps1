@@ -13,7 +13,7 @@ try {
         )
         if ($process.ExitCode -ne 0) { throw "Installer failed with exit code $($process.ExitCode)" }
     }
-    foreach ($name in @('raster.exe', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'docs\LIMITATIONS.md', 'unins000.exe')) {
+    foreach ($name in @('raster.exe', 'raster-logo.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'docs\LIMITATIONS.md', 'unins000.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDir $name) -PathType Leaf)) { throw "Installed file missing: $name" }
     }
     $group = Join-Path ([Environment]::GetFolderPath('Programs')) 'Raster'
@@ -27,6 +27,23 @@ try {
     $editorLink = $wsh.CreateShortcut($editorShortcut)
     if ($promptLink.Arguments -ne '--shell' -or $editorLink.Arguments -ne '') { throw 'Incorrect Start menu shortcut arguments' }
     if ($promptLink.TargetPath -ne (Join-Path $installDir 'raster.exe') -or $editorLink.TargetPath -ne (Join-Path $installDir 'raster.exe')) { throw 'Incorrect Start menu shortcut target' }
+    # Both the installer and installed app must contain the Raster icon.
+    Add-Type -AssemblyName System.Drawing
+    $setupIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($installerPath)
+    $appIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Join-Path $installDir 'raster.exe'))
+    if ($null -eq $setupIcon -or $null -eq $appIcon) { throw 'Installer or app icon missing' }
+    $setupBitmap = $setupIcon.ToBitmap()
+    $appBitmap = $appIcon.ToBitmap()
+    try {
+        if ($setupBitmap.Width -ne $appBitmap.Width -or $setupBitmap.Height -ne $appBitmap.Height) { throw 'Icon dimensions differ' }
+        for ($y = 0; $y -lt $setupBitmap.Height; $y++) {
+            for ($x = 0; $x -lt $setupBitmap.Width; $x++) {
+                if ($setupBitmap.GetPixel($x, $y).ToArgb() -ne $appBitmap.GetPixel($x, $y).ToArgb()) { throw 'Installer and app icons differ' }
+            }
+        }
+    } finally {
+        $setupBitmap.Dispose(); $appBitmap.Dispose(); $setupIcon.Dispose(); $appIcon.Dispose()
+    }
     $versionOutput = & (Join-Path $installDir 'raster.exe') --version
     if ($LASTEXITCODE -ne 0 -or ($versionOutput -join "`n") -notmatch '^raster \d+\.\d+\.\d+') { throw 'Installed executable version check failed' }
     $health = & (Join-Path $installDir 'raster.exe') --no-config --health | ConvertFrom-Json

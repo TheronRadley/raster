@@ -69,9 +69,9 @@ implied to be shipped.
   consumed by a multiplexer or SSH layer, and `Ctrl+Tab`/modified arrows vary
   by terminal. `:w`, `:q`, `:bn`, `:bp`, and palette commands are documented
   alternatives.
-- No release assets, distro packages, Homebrew formula, Scoop manifest, or
-  published crates.io release exist. CI uploads build artifacts only; no
-  release was published.
+- An unsigned Windows x64 preview installer is published, but no stable signed
+  release, distro packages, Homebrew formula, Scoop manifest, or published
+  crates.io release exist. Windows 10/11 desktop validation remains outstanding.
 
 ## Verification state
 

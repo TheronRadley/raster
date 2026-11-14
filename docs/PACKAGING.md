@@ -1,8 +1,9 @@
 # Packaging and installation
 
-No release has been published. Windows x64 installer builds are available as
-unsigned CI artifacts on successful runs; they are not signed release assets.
-Source builds remain available on all platforms.
+An unsigned Windows x64 preview installer is available as a direct EXE from the
+[preview release](https://github.com/TheronRadley/raster/releases/tag/windows-preview-df316eb).
+It is not a stable or signed release. Source builds remain available on all
+platforms.
 
 ## Prerequisites
 
@@ -64,10 +65,10 @@ installer. The build itself requires the Rust/MSVC and Inno tools above.
 
 Windows CI builds the installer and tests silent installation, upgrade,
 `--version`, `--health`, and uninstallation, including preservation of an
-untracked file. Download `raster-windows-x64-installer` from a successful
-GitHub Actions run; artifacts may expire and may require GitHub sign-in. The
-executable is **unsigned**, so Windows SmartScreen may warn. Verify its source
-before running it; do not assume it is an official signed release. CI uses
+untracked file, and verifies the installed application and setup icons. Download
+the [preview installer EXE](https://github.com/TheronRadley/raster/releases/download/windows-preview-df316eb/Raster-Setup-0.1.0-x64.exe)
+directly. It is **unsigned**, so Windows SmartScreen may warn. CI artifacts are
+also available but expire and may require sign-in. CI uses
 Windows Server, not Windows 10 or 11 desktops. Interactive use and installer
 behavior on actual Windows 10/11 devices, accessibility, ARM64 emulation, and
 code signing still require validation. 32-bit Windows is not supported by this

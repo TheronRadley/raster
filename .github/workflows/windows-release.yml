@@ -1,0 +1,37 @@
+name: Windows preview release
+
+on:
+  push:
+    tags:
+      - 'windows-preview-*'
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build x64 installer
+        shell: pwsh
+        run: ./packaging/windows/build-installer.ps1
+      - name: Test installer
+        shell: pwsh
+        run: |
+          $items = @(Get-ChildItem target/installer/Raster-Setup-*-x64.exe)
+          if ($items.Count -ne 1) { throw 'Expected exactly one installer' }
+          ./packaging/windows/test-installer.ps1 -Installer $items[0].FullName
+      - name: Upload the direct EXE to the preview release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $installer = @(Get-ChildItem target/installer/Raster-Setup-*-x64.exe)
+          if ($installer.Count -ne 1) { throw 'Expected exactly one installer' }
+          gh release upload "$env:TAG_NAME" $installer[0].FullName --repo "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

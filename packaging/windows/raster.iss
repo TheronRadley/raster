@@ -26,11 +26,15 @@ OutputBaseFilename=Raster-Setup-{#RasterVersion}-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\assets\raster.ico
+WizardImageFile=..\..\assets\installer-banner.bmp
+WizardSmallImageFile=..\..\assets\installer-small.bmp
 UninstallDisplayIcon={app}\raster.exe
 SetupLogging=yes
 
 [Files]
 Source: "..\..\target\x86_64-pc-windows-msvc\release\raster.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\assets\raster-logo.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
