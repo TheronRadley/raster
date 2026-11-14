@@ -304,8 +304,16 @@ impl InputParser {
                         self.state = State::Ground;
                         events.push(Event::Paste(text));
                     } else {
-                        self.paste.extend_from_slice(&self.buffer);
-                        self.buffer.clear();
+                        // A read can end in the middle of the closing marker.
+                        // Keep its longest possible prefix for the next read.
+                        let marker = b"\x1b[201~";
+                        let keep = (1..marker.len())
+                            .rev()
+                            .find(|&n| self.buffer.ends_with(&marker[..n]))
+                            .unwrap_or(0);
+                        let consumed = self.buffer.len() - keep;
+                        self.paste.extend_from_slice(&self.buffer[..consumed]);
+                        self.buffer.drain(..consumed);
                         return events;
                     }
                 }
@@ -701,6 +709,36 @@ mod tests {
         assert_eq!(
             events,
             vec![Event::Paste("hello\u{fffd}[31m\nworld".to_string())]
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_closing_marker_can_split_at_every_byte() {
+        let marker = b"\x1b[201~";
+        for split in 1..marker.len() {
+            let mut p = InputParser::new();
+            assert!(p.feed(b"\x1b[200~hello").is_empty());
+            assert!(p.feed(&marker[..split]).is_empty());
+            assert!(p.flush().is_empty());
+            let mut rest = marker[split..].to_vec();
+            rest.push(b'x');
+            assert_eq!(
+                p.feed(&rest),
+                vec![
+                    Event::Paste("hello".into()),
+                    Event::Key(KeyEvent::char('x'))
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn paste_preserves_partial_marker_when_it_is_not_the_terminator() {
+        let mut p = InputParser::new();
+        assert!(p.feed(b"\x1b[200~x\x1b[20").is_empty());
+        assert_eq!(
+            p.feed(b"0~y\x1b[201~"),
+            vec![Event::Paste("x\u{fffd}[200~y".into())]
         );
     }
 

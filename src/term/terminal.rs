@@ -135,10 +135,12 @@ impl Terminal {
                     events.extend(parser.feed(&bytes));
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                // Give split UTF-8 and escape sequences a chance to arrive in
+                // the next read; flushing immediately corrupts partial input.
+                events.extend(parser.flush());
+            }
         }
-        events.extend(parser.flush());
         let size = self.current_size();
         if size.cols != self.size.cols || size.rows != self.size.rows {
             self.size = size;

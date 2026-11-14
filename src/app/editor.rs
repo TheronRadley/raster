@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::app::buffer::{Buffer, BufferError, EditOutcome};
 use crate::app::layout::{self, Viewport};
 use crate::app::search_worker::{self, BufferSearchHandle};
@@ -37,9 +39,11 @@ use crate::session::{
 };
 use crate::term::input::{Event, Key, KeyEvent, MouseEvent, MouseKind, SignalKind};
 use crate::term::renderer::{Frame, Rect, Style};
-use crate::util::{config_dir, display_width, ellipsize, recovery_dir, session_file, short_path};
+use crate::util::{
+    config_dir, ellipsize, grapheme_width, recovery_dir, sanitize_display, session_file, short_path,
+};
 
-const WELCOME: &str = "Raster — start typing immediately\n\nEssential shortcuts\n  Ctrl+S save       Ctrl+O open       Ctrl+Q quit\n  Ctrl+F find       Ctrl+R replace    Ctrl+P files\n  Ctrl+Z undo       Ctrl+Y redo       Ctrl+B buffers\n  Ctrl+Shift+P commands             F1 help\n\nFiles are opened without a mode. Press ':' for a named command.\nThis welcome text is an editable scratch buffer; use Ctrl+O to open a file.\n";
+const WELCOME: &str = "Raster — start typing immediately\n\nEssential shortcuts\n  Ctrl+S save       Ctrl+O open       Ctrl+Q quit\n  Ctrl+F find       Ctrl+R replace    Ctrl+P files\n  Ctrl+Z undo       Ctrl+Y redo       Ctrl+B buffers\n  Ctrl+Shift+P commands             F1 help\n\nFiles are opened without a mode. Alt+: opens named commands.\nThis welcome text is an editable scratch buffer; use Ctrl+O to open a file.\n";
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum EditorAction {
@@ -647,7 +651,8 @@ impl Editor {
                 prompt.cursor += text.chars().count();
             }
             UiMode::List(list) => {
-                list.query.push_str(text);
+                list.query
+                    .insert_str(byte_at_char(&list.query, list.cursor), text);
                 list.cursor += text.chars().count();
                 let mut taken = std::mem::replace(&mut self.ui, UiMode::Normal);
                 if let UiMode::List(ref mut state) = taken {
@@ -655,10 +660,11 @@ impl Editor {
                 }
                 self.ui = taken;
             }
-            _ => {
+            UiMode::Normal => {
                 self.apply_edit(|buffer| buffer.insert_text(text));
                 self.set_status("bracketed paste inserted as text");
             }
+            UiMode::Help { .. } | UiMode::Confirm { .. } => {}
         }
     }
 
@@ -718,6 +724,10 @@ impl Editor {
 
     fn handle_unbound_key(&mut self, key: KeyEvent) -> EditorAction {
         if key.mods.ctrl || key.mods.alt {
+            if key.key == Key::Char(':') && key.mods.alt && !key.mods.ctrl {
+                self.open_prompt(PromptKind::CommandLine, ":", "", "named command");
+                return EditorAction::None;
+            }
             if key.key == Key::Char('s') && key.mods.ctrl {
                 return self.execute(Command::new(CommandId::Save));
             }
@@ -732,10 +742,6 @@ impl Editor {
             Key::Delete => self.execute(Command::new(CommandId::Delete)),
             Key::Tab if key.mods.shift => self.execute(Command::new(CommandId::Outdent)),
             Key::Tab => self.execute(Command::new(CommandId::InsertTab)),
-            Key::Char(':') => {
-                self.open_prompt(PromptKind::CommandLine, ":", "", "named command");
-                EditorAction::None
-            }
             Key::Char(ch) if !ch.is_control() => {
                 let s = ch.to_string();
                 self.apply_edit(|b| b.insert_text(&s));
@@ -873,7 +879,7 @@ impl Editor {
                     .insert(byte_at_char(&prompt.input, prompt.cursor), '\t');
                 prompt.cursor += 1;
             }
-            Key::Char(ch) if !ch.is_control() => {
+            Key::Char(ch) if !key.mods.ctrl && !key.mods.alt && !ch.is_control() => {
                 prompt
                     .input
                     .insert(byte_at_char(&prompt.input, prompt.cursor), ch);
@@ -938,7 +944,7 @@ impl Editor {
             }
             Key::Left => list.cursor = list.cursor.saturating_sub(1),
             Key::Right => list.cursor = (list.cursor + 1).min(list.query.chars().count()),
-            Key::Char(ch) if !ch.is_control() => {
+            Key::Char(ch) if !key.mods.ctrl && !key.mods.alt && !ch.is_control() => {
                 list.query
                     .insert(byte_at_char(&list.query, list.cursor), ch);
                 list.cursor += 1;
@@ -1092,6 +1098,35 @@ impl Editor {
         list.selected = 0;
         list.scroll = 0;
     }
+}
+
+// Pick a grapheme-aligned horizontal window that keeps the input cursor visible.
+// Input positions are character indices; the screen uses display columns.
+fn input_view(text: &str, cursor: usize, width: usize, cjk_wide: bool) -> (&str, usize) {
+    if width == 0 {
+        return ("", 0);
+    }
+    let cursor_byte = byte_at_char(text, cursor);
+    let mut start = cursor_byte;
+    let mut columns = 0;
+    for (index, grapheme) in text.grapheme_indices(true).rev() {
+        if index >= cursor_byte {
+            continue;
+        }
+        // A cursor within a grapheme is displayed at the cluster's start.
+        if index + grapheme.len() > cursor_byte {
+            start = index;
+            continue;
+        }
+        let safe = sanitize_display(grapheme);
+        let n = grapheme_width(&safe, cjk_wide).max(1);
+        if columns + n >= width {
+            break;
+        }
+        columns += n;
+        start = index;
+    }
+    (&text[start..], columns)
 }
 
 fn byte_at_char(text: &str, index: usize) -> usize {
@@ -2860,7 +2895,7 @@ impl Editor {
             "  Ctrl+W v / s split; Ctrl+W h/j/k/l focus; Ctrl+W q close".into(),
             "  Ctrl+A select all   Ctrl+C / X / V internal register".into(),
             "  Ctrl+Shift+C / X / V system clipboard (explicit remote opt-in)".into(),
-            "  ':' opens named commands; aliases include :w, :q, :open, :goto".into(),
+            "  Alt+: opens named commands; aliases include :w, :q, :open, :goto".into(),
             "  F1 this help; Esc cancels a prompt or collapses selection".into(),
             String::new(),
             "Terminal ambiguities: Ctrl+S/Ctrl+Q require flow control disabled (raw mode);".into(),
@@ -3135,7 +3170,7 @@ impl Editor {
     }
 
     fn render_tabs(&mut self, frame: &mut Frame) {
-        if !self.config.ui.tab_strip || self.size.rows == 0 {
+        if !self.config.ui.tab_strip || self.size.rows < self.config.ui.min_rows + 2 {
             return;
         }
         frame.fill(0, Style::Plain);
@@ -3204,17 +3239,21 @@ impl Editor {
             .filter(|g| !g.snapshot.branch.is_empty())
             .map(|g| g.snapshot.branch.clone());
         let mut prefix = format!(
-            " {}{}{} {}:{} {} {} {} view{} ",
+            " {}{}{} {}:{} {} {} ",
             path,
             if dirty { "*" } else { "" },
             if read_only { " [ro]" } else { "" },
             line,
             col,
             language,
-            newline,
-            mode,
-            self.focus
+            newline
         );
+        if self.config.editor.profile != ProfileName::Normal {
+            prefix.push_str(&format!("{mode} "));
+        }
+        if self.views.len() > 1 {
+            prefix.push_str(&format!("view{} ", self.focus));
+        }
         if large {
             prefix.push_str("[large] ");
         }
@@ -3227,25 +3266,29 @@ impl Editor {
         if let Some(branch) = git {
             prefix.push_str(&format!("git:{branch} "));
         }
+        let active_message = Instant::now() <= self.status_until && !self.status.is_empty();
+        if active_message || external || self.external_warning {
+            // A narrow terminal must not hide errors and confirmations behind
+            // the buffer metadata. Show the message across the whole row.
+            let (message, style) = if active_message {
+                (&*self.status, self.status_style)
+            } else {
+                ("external change: :reload or :overwrite", Style::Warning)
+            };
+            frame.set(row, 0, &format!(" {message}"), style, self.size.cols);
+            return;
+        }
         let used = frame.set(row, 0, &prefix, Style::Plain, self.size.cols);
-        let message = if Instant::now() <= self.status_until && !self.status.is_empty() {
-            self.status.clone()
-        } else if external || self.external_warning {
-            "external change: :reload or :overwrite".into()
-        } else {
-            "F1 help · Ctrl+Shift+P commands · Ctrl+Q quit".into()
-        };
-        let style = if external || self.external_warning || self.status_style == Style::Warning {
-            Style::Warning
-        } else {
-            self.status_style
-        };
         if used < self.size.cols {
             frame.set(
                 row,
                 used,
-                &ellipsize(&message, self.size.cols - used, self.config.editor.cjk_wide),
-                style,
+                &ellipsize(
+                    "F1 help · Ctrl+Shift+P commands · Ctrl+Q quit",
+                    self.size.cols - used,
+                    self.config.editor.cjk_wide,
+                ),
+                Style::Dim,
                 self.size.cols - used,
             );
         }
@@ -3265,26 +3308,33 @@ impl Editor {
                     0,
                     &format!("{} ", prompt.label),
                     Style::Active,
-                    self.size.cols,
+                    self.size.cols.saturating_sub(1),
                 );
-                let input_used = frame.set(
-                    row,
-                    label_used,
+                let input_width = self.size.cols.saturating_sub(label_used);
+                let (visible, input_cursor) = input_view(
                     &prompt.input,
-                    Style::Plain,
-                    self.size.cols.saturating_sub(label_used),
+                    prompt.cursor,
+                    input_width,
+                    self.config.editor.cjk_wide,
                 );
-                let hint_col = (label_used + input_used + 2).min(self.size.cols.saturating_sub(1));
-                frame.set(
-                    row,
-                    hint_col,
-                    &format!("  {}", prompt.hint),
-                    Style::Dim,
-                    self.size.cols.saturating_sub(hint_col),
-                );
-                let prefix: String = prompt.input.chars().take(prompt.cursor).collect();
-                let cursor_col = (label_used + display_width(&prefix, self.config.editor.cjk_wide))
-                    .min(self.size.cols.saturating_sub(1));
+                let input_used = frame.set(row, label_used, visible, Style::Plain, input_width);
+                let hint_col = label_used + input_used + 2;
+                if hint_col < self.size.cols
+                    && input_used
+                        == crate::util::display_width(
+                            &sanitize_display(visible),
+                            self.config.editor.cjk_wide,
+                        )
+                {
+                    frame.set(
+                        row,
+                        hint_col,
+                        &prompt.hint,
+                        Style::Dim,
+                        self.size.cols - hint_col,
+                    );
+                }
+                let cursor_col = (label_used + input_cursor).min(self.size.cols.saturating_sub(1));
                 frame.cursor = Some((cursor_col, row));
             }
             UiMode::List(list) => {
@@ -3308,21 +3358,29 @@ impl Editor {
                     self.size.cols,
                 );
                 let title = format!(" {}  ", list.title);
-                let title_used = frame.set(top, 0, &title, Style::Active, self.size.cols);
-                let query = format!("/{}", list.query);
-                let query_used = frame.set(
+                let title_used = frame.set(
                     top,
-                    title_used,
-                    &query,
-                    Style::Plain,
-                    self.size.cols.saturating_sub(title_used),
+                    0,
+                    &title,
+                    Style::Active,
+                    self.size.cols.saturating_sub(2),
                 );
-                let prefix: String = list.query.chars().take(list.cursor).collect();
-                let cursor_col =
-                    (title_used + 1 + display_width(&prefix, self.config.editor.cjk_wide))
-                        .min(self.size.cols.saturating_sub(1));
-                frame.cursor = Some((cursor_col, top));
-                let _ = query_used;
+                let slash = frame.set(top, title_used, "/", Style::Plain, 1);
+                let query_col = title_used + slash;
+                let (visible, input_cursor) = input_view(
+                    &list.query,
+                    list.cursor,
+                    self.size.cols.saturating_sub(query_col),
+                    self.config.editor.cjk_wide,
+                );
+                frame.set(
+                    top,
+                    query_col,
+                    visible,
+                    Style::Plain,
+                    self.size.cols - query_col,
+                );
+                frame.cursor = Some(((query_col + input_cursor).min(self.size.cols - 1), top));
                 let visible = panel_height.saturating_sub(1);
                 if list.selected < list.scroll { /* render clamps below */ }
                 let scroll = list
@@ -4529,6 +4587,23 @@ mod tests {
     }
 
     #[test]
+    fn normal_typing_inserts_colon_and_alt_colon_opens_commands() {
+        let mut editor = Editor::for_test(Config::default(), "");
+        editor.handle_event(key(':'));
+        assert_eq!(editor.document_text(), ":");
+        assert!(matches!(editor.ui_mode(), UiMode::Normal));
+        editor.handle_event(Event::Key(KeyEvent {
+            key: Key::Char(':'),
+            mods: Modifiers {
+                alt: true,
+                ..Modifiers::default()
+            },
+        }));
+        assert!(matches!(editor.ui_mode(), UiMode::Prompt(_)));
+        assert_eq!(editor.document_text(), ":");
+    }
+
+    #[test]
     fn bracketed_paste_is_text_and_arabic_bytes_are_preserved() {
         let mut editor = Editor::for_test(Config::default(), "");
         editor.handle_event(Event::Paste("مرحبا 😀\nsecond".into()));
@@ -4579,7 +4654,13 @@ mod tests {
     #[test]
     fn resize_during_prompt_and_split_are_safe() {
         let mut editor = Editor::for_test(Config::default(), "one\ntwo\nthree");
-        editor.handle_event(key(':'));
+        editor.handle_event(Event::Key(KeyEvent {
+            key: Key::Char(':'),
+            mods: Modifiers {
+                alt: true,
+                ..Modifiers::default()
+            },
+        }));
         assert!(matches!(editor.ui_mode(), UiMode::Prompt(_)));
         assert!(editor
             .render_frame(Size::new(10, 4))
@@ -4605,6 +4686,105 @@ mod tests {
             24
         );
         editor.execute(Command::new(CommandId::EqualizeSplits));
+    }
+
+    #[test]
+    fn compact_height_does_not_draw_tabs_over_document() {
+        let mut editor = Editor::for_test(Config::default(), "first line\nsecond line");
+        let frame = editor.render_frame(Size::new(40, 6)).render_plain();
+        assert!(
+            frame.lines().next().unwrap().contains("first line"),
+            "{frame}"
+        );
+    }
+
+    #[test]
+    fn status_messages_take_priority_in_narrow_terminals() {
+        let mut editor = Editor::for_test(Config::default(), "text");
+        editor.set_status_styled(
+            "Save failed: disk full",
+            Style::Warning,
+            Duration::from_secs(5),
+        );
+        let frame = editor.render_frame(Size::new(24, 8)).render_plain();
+        assert!(
+            frame
+                .lines()
+                .last()
+                .unwrap()
+                .contains("Save failed: disk full"),
+            "{frame}"
+        );
+    }
+
+    #[test]
+    fn prompt_scrolls_to_keep_the_cursor_and_text_visible() {
+        let mut editor = Editor::for_test(Config::default(), "document");
+        editor.ui = UiMode::Prompt(PromptState::new(
+            PromptKind::Open,
+            "Open",
+            "abcdefghijklmnopqrstuvwx😀z",
+            "hint",
+        ));
+        let frame = editor.render_frame(Size::new(24, 8));
+        let (x, y) = frame.cursor.unwrap();
+        let lines = frame.render_plain();
+        let row = lines.lines().nth(y).unwrap();
+        assert!(row.contains("😀z"), "{row}");
+        assert_eq!(x, 23);
+        assert!(!row.contains("hint"));
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Home)));
+        let frame = editor.render_frame(Size::new(24, 8));
+        let (x, y) = frame.cursor.unwrap();
+        assert_eq!(x, 5);
+        assert!(frame
+            .render_plain()
+            .lines()
+            .nth(y)
+            .unwrap()
+            .contains("abcdef"));
+    }
+
+    #[test]
+    fn paste_respects_modal_context_and_list_cursor() {
+        let mut editor = Editor::for_test(Config::default(), "document");
+        editor.ui = UiMode::List(ListState::new(
+            ListKind::CommandPalette,
+            "Commands",
+            "ab",
+            vec![],
+        ));
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Left)));
+        editor.handle_event(Event::Paste("X".into()));
+        if let UiMode::List(list) = editor.ui_mode() {
+            assert_eq!(list.query, "aXb");
+            assert_eq!(list.cursor, 2);
+        } else {
+            panic!("expected list");
+        }
+        editor.handle_event(Event::Key(KeyEvent::ctrl('s')));
+        if let UiMode::List(list) = editor.ui_mode() {
+            assert_eq!(list.query, "aXb");
+        } else {
+            panic!("expected list");
+        }
+        editor.execute(Command::new(CommandId::Help));
+        assert!(matches!(editor.ui_mode(), UiMode::Help { .. }));
+        editor.handle_event(Event::Paste("not an edit".into()));
+        assert_eq!(editor.document_text(), "document");
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Escape)));
+        editor.handle_event(key('!'));
+        editor.execute(Command::new(CommandId::Quit));
+        assert!(matches!(editor.ui_mode(), UiMode::Confirm { .. }));
+        editor.handle_event(Event::Paste("not an edit".into()));
+        assert_eq!(editor.document_text(), "!document");
+        editor.ui = UiMode::Prompt(PromptState::new(PromptKind::Open, "Open", "name", ""));
+        editor.handle_event(Event::Key(KeyEvent::ctrl('s')));
+        if let UiMode::Prompt(prompt) = editor.ui_mode() {
+            assert_eq!(prompt.input, "name");
+        } else {
+            panic!("expected prompt");
+        }
     }
 
     #[test]

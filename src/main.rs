@@ -257,7 +257,8 @@ fn run_interactive(config: Config, cli: CliOptions) -> io::Result<()> {
     terminal.enter(config.ui.mouse, config.ui.alt_screen)?;
     let mut editor = Editor::new(config, cli, terminal.size).map_err(to_io)?;
     let mut parser = InputParser::new();
-    terminal.write(&editor.render_ansi(terminal.size))?;
+    let mut last_frame = editor.render_ansi(terminal.size);
+    terminal.write(&last_frame)?;
     loop {
         let events = terminal.poll_events(&mut parser, Duration::from_millis(50));
         let mut requested = EditorAction::None;
@@ -275,15 +276,26 @@ fn run_interactive(config: Config, cli: CliOptions) -> io::Result<()> {
         for bytes in editor.take_output() {
             terminal.write(&bytes)?;
         }
-        terminal.write(&editor.render_ansi(terminal.size))?;
+        let frame = editor.render_ansi(terminal.size);
+        if frame != last_frame {
+            terminal.write(&frame)?;
+            last_frame = frame;
+        }
         match requested {
             EditorAction::Quit => break,
-            EditorAction::Suspend => match terminal.suspend() {
-                Ok(()) => {
-                    editor.handle_event(Event::Signal(raster::term::input::SignalKind::Continue));
+            EditorAction::Suspend => {
+                let result = terminal.suspend();
+                // The alternate screen may have been re-entered even if the
+                // suspend command failed, so redraw in either case.
+                last_frame.clear();
+                match result {
+                    Ok(()) => {
+                        editor
+                            .handle_event(Event::Signal(raster::term::input::SignalKind::Continue));
+                    }
+                    Err(e) => editor.set_status(e.to_string()),
                 }
-                Err(e) => editor.set_status(e.to_string()),
-            },
+            }
             EditorAction::None => {}
         }
     }
