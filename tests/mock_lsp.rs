@@ -220,7 +220,6 @@ fn editor_with_lsp(dir: &TestDir, args: &[&str], timeout_ms: u64) -> Editor {
     config.ui.mouse = false;
     config.lsp.enabled = true;
     config.lsp.request_timeout_ms = timeout_ms;
-    config.lsp.trust_workspace_edits = false;
     config.lsp.servers = vec![LspServerConfig {
         language: "rust".into(),
         command: env!("CARGO_BIN_EXE_mock-lsp").into(),

@@ -701,7 +701,6 @@ pub struct LspConfig {
     pub enabled: bool,
     pub request_timeout_ms: u64,
     pub servers: Vec<LspServerConfig>,
-    pub trust_workspace_edits: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -753,7 +752,6 @@ impl Default for Config {
                 enabled: false,
                 request_timeout_ms: 5000,
                 servers: Vec::new(),
-                trust_workspace_edits: false,
             },
             git: GitConfig {
                 enabled: true,
@@ -1069,10 +1067,6 @@ fn apply_table(
                         "enabled" => config.lsp.enabled = bool_value(v, "lsp.enabled")?,
                         "request_timeout_ms" => {
                             config.lsp.request_timeout_ms = u64_value(v, "lsp.request_timeout_ms")?
-                        }
-                        "trust_workspace_edits" => {
-                            config.lsp.trust_workspace_edits =
-                                bool_value(v, "lsp.trust_workspace_edits")?
                         }
                         "servers" => {
                             let items = v.as_array().ok_or_else(|| {

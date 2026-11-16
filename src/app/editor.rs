@@ -619,6 +619,10 @@ impl Editor {
                 EditorAction::None
             }
             Event::Key(key) => self.handle_key(key),
+            Event::InputRejected(reason) => {
+                self.set_status_styled(reason, Style::Warning, Duration::from_secs(8));
+                EditorAction::None
+            }
             Event::Paste(text) => {
                 self.handle_paste(&text);
                 EditorAction::None
@@ -2594,7 +2598,10 @@ impl Editor {
     }
 
     fn submit_prompt(&mut self, prompt: PromptState) {
-        let input = prompt.input.trim().to_string();
+        let input = match prompt.kind {
+            PromptKind::GoToLine | PromptKind::CommandLine => prompt.input.trim().to_string(),
+            _ => prompt.input,
+        };
         match prompt.kind {
             PromptKind::Open => {
                 if !input.is_empty() {
@@ -4010,7 +4017,17 @@ impl Editor {
         payload: &Json,
         encoding: PositionEncoding,
     ) {
-        let edits = lsp::text_edits_to_replacements(doc, payload, encoding);
+        let edits = match lsp::text_edits_to_replacements(doc, payload, encoding) {
+            Ok(edits) => edits,
+            Err(error) => {
+                self.set_status_styled(
+                    format!("invalid formatter edits: {error}"),
+                    Style::Warning,
+                    Duration::from_secs(8),
+                );
+                return;
+            }
+        };
         if edits.is_empty() {
             self.set_status("formatter returned no edits");
             return;

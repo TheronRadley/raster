@@ -138,7 +138,13 @@ impl GitStatus {
 pub fn refresh_sync(root: &Path) -> GitSnapshot {
     match run_git(
         root,
-        &["status", "--porcelain=v1", "-b", "--untracked-files=normal"],
+        &[
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "-b",
+            "--untracked-files=normal",
+        ],
     ) {
         Ok(status) => {
             let mut snapshot = parse_status(&status);
@@ -201,7 +207,8 @@ fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
 
 fn parse_status(text: &str) -> GitSnapshot {
     let mut snapshot = GitSnapshot::default();
-    for line in text.lines() {
+    let mut records = text.split('\0');
+    while let Some(line) = records.next() {
         if let Some(branch) = line.strip_prefix("## ") {
             snapshot.branch = branch
                 .split("...")
@@ -217,9 +224,10 @@ fn parse_status(text: &str) -> GitSnapshot {
         let bytes = line.as_bytes();
         let x = bytes[0] as char;
         let y = bytes[1] as char;
-        let mut path = line[3..].to_string();
-        if let Some(idx) = path.find(" -> ") {
-            path = path[idx + 4..].to_string();
+        let path = line[3..].to_string();
+        // With -z Git emits destination first and a second record for the source.
+        if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
+            let _ = records.next();
         }
         let status = match (x, y) {
             ('?', '?') => GitFileStatus::Untracked,
@@ -308,14 +316,30 @@ mod tests {
     #[test]
     fn parses_status_and_hunk_headers() {
         assert_eq!(
-            parse_status("## main...origin/main\n M a.rs\n?? b.rs\n").branch,
+            parse_status("## main...origin/main\0 M a.rs\0?? b.rs\0").branch,
             "main"
         );
         assert_eq!(
-            parse_status("## main\n?? b.rs\n").changed[0].1,
+            parse_status("## main\0?? b.rs\0").changed[0].1,
             GitFileStatus::Untracked
         );
         assert_eq!(parse_diff_lines("@@ -2 +2 @@\n-TWO\n+TWO\n"), vec![2]);
+    }
+
+    #[test]
+    fn nul_status_preserves_special_names_and_rename_records() {
+        let snapshot =
+            parse_status("## main\0R  new -> \"name\"\nfile\0old name\0?? space name\0 M café\0");
+        assert!(snapshot
+            .changed
+            .contains(&("new -> \"name\"\nfile".into(), GitFileStatus::Renamed)));
+        assert!(snapshot
+            .changed
+            .contains(&("space name".into(), GitFileStatus::Untracked)));
+        assert!(snapshot
+            .changed
+            .contains(&("café".into(), GitFileStatus::Modified)));
+        assert_eq!(snapshot.changed.len(), 3);
     }
 
     #[test]

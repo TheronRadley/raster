@@ -96,7 +96,7 @@ impl Json {
             bytes: input.as_bytes(),
             pos: 0,
         };
-        let value = parser.value()?;
+        let value = parser.value(0)?;
         parser.skip_ws();
         if parser.pos != parser.bytes.len() {
             return Err(parser.error("trailing data"));
@@ -144,11 +144,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn value(&mut self) -> Result<Json, JsonError> {
+    fn value(&mut self, depth: usize) -> Result<Json, JsonError> {
         self.skip_ws();
         let Some(&b) = self.bytes.get(self.pos) else {
             return Err(self.error("unexpected end"));
         };
+        const MAX_NESTING: usize = 128;
+        if depth >= MAX_NESTING && matches!(b, b'[' | b'{') {
+            return Err(self.error("maximum nesting depth exceeded"));
+        }
         match b {
             b'n' => {
                 self.literal(b"null")?;
@@ -163,8 +167,8 @@ impl<'a> Parser<'a> {
                 Ok(Json::Bool(false))
             }
             b'"' => Ok(Json::String(self.string()?)),
-            b'[' => self.array(),
-            b'{' => self.object(),
+            b'[' => self.array(depth + 1),
+            b'{' => self.object(depth + 1),
             b'-' | b'0'..=b'9' => self.number(),
             _ => Err(self.error("unexpected byte")),
         }
@@ -266,7 +270,7 @@ impl<'a> Parser<'a> {
         Ok(value)
     }
 
-    fn array(&mut self) -> Result<Json, JsonError> {
+    fn array(&mut self, depth: usize) -> Result<Json, JsonError> {
         self.pos += 1;
         let mut items = Vec::new();
         self.skip_ws();
@@ -275,7 +279,7 @@ impl<'a> Parser<'a> {
             return Ok(Json::Array(items));
         }
         loop {
-            items.push(self.value()?);
+            items.push(self.value(depth)?);
             self.skip_ws();
             match self.bytes.get(self.pos) {
                 Some(b',') => {
@@ -290,7 +294,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn object(&mut self) -> Result<Json, JsonError> {
+    fn object(&mut self, depth: usize) -> Result<Json, JsonError> {
         self.pos += 1;
         let mut map = BTreeMap::new();
         self.skip_ws();
@@ -306,7 +310,7 @@ impl<'a> Parser<'a> {
                 return Err(self.error("expected ':'"));
             }
             self.pos += 1;
-            let value = self.value()?;
+            let value = self.value(depth)?;
             map.insert(key, value);
             self.skip_ws();
             match self.bytes.get(self.pos) {
@@ -454,6 +458,19 @@ mod tests {
     fn surrogate_pair_is_decoded() {
         let value = Json::parse(r#""\uD83D\uDE00""#).unwrap();
         assert_eq!(value.as_str(), Some("😀"));
+    }
+
+    #[test]
+    fn nesting_is_bounded_for_arrays_and_objects() {
+        let arrays = format!("{}0{}", "[".repeat(128), "]".repeat(128));
+        assert!(Json::parse(&arrays).is_ok());
+        let too_deep = format!("{}0{}", "[".repeat(129), "]".repeat(129));
+        assert!(Json::parse(&too_deep)
+            .unwrap_err()
+            .message
+            .contains("nesting"));
+        let objects = format!("{}0{}", "{\"x\":".repeat(129), "}".repeat(129));
+        assert!(Json::parse(&objects).is_err());
     }
 
     #[test]

@@ -44,7 +44,6 @@ recovery_retention_days = 7
 # Raster never downloads servers or reads project-local executable settings.
 enabled = false
 request_timeout_ms = 5000
-trust_workspace_edits = false
 
 [[lsp.servers]]
 language = "rust"

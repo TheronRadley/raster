@@ -577,19 +577,39 @@ pub fn write_message<W: Write>(writer: &mut W, message: &Json) -> std::io::Resul
 }
 
 pub fn read_message<R: BufRead>(reader: &mut R) -> Result<Json, String> {
+    const MAX_HEADER_BYTES: usize = 16 * 1024;
     let mut length = None;
+    let mut total = 0usize;
     loop {
-        let mut line = String::new();
-        let n = reader.read_line(&mut line).map_err(|e| e.to_string())?;
-        if n == 0 {
-            return Err("LSP server closed stdout".into());
+        let mut line = Vec::new();
+        let mut limited = std::io::Read::take(&mut *reader, (MAX_HEADER_BYTES + 1 - total) as u64);
+        let n = limited
+            .read_until(b'\n', &mut line)
+            .map_err(|e| e.to_string())?;
+        total += n;
+        if total > MAX_HEADER_BYTES {
+            return Err("LSP headers too large".into());
         }
+        if n == 0 || !line.ends_with(b"\n") {
+            return Err("LSP server closed stdout in headers".into());
+        }
+        let line = std::str::from_utf8(&line).map_err(|_| "invalid LSP header encoding")?;
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty() {
             break;
         }
-        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            length = value.trim().parse::<usize>().ok();
+        if let Some((name, value)) = trimmed.split_once(':') {
+            if name.eq_ignore_ascii_case("Content-Length") {
+                if length.is_some() {
+                    return Err("duplicate Content-Length".into());
+                }
+                length = Some(
+                    value
+                        .trim()
+                        .parse::<usize>()
+                        .map_err(|_| "invalid Content-Length")?,
+                );
+            }
         }
     }
     let length = length.ok_or_else(|| "missing Content-Length".to_string())?;
@@ -723,33 +743,63 @@ pub fn text_edits_to_replacements(
     doc: &Document,
     edits: &Json,
     encoding: PositionEncoding,
-) -> Vec<Replacement> {
-    let mut out = Vec::new();
-    for edit in edits.as_array().unwrap_or(&[]) {
-        let Some(range) = edit.get("range") else {
-            continue;
+) -> Result<Vec<Replacement>, LspError> {
+    let edits = edits
+        .as_array()
+        .ok_or_else(|| LspError("text edits must be an array".into()))?;
+    let position = |value: &Json| -> Result<BytePos, LspError> {
+        let number = |key| {
+            value
+                .get(key)
+                .and_then(Json::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| LspError(format!("invalid edit position {key}")))
         };
-        let Some(start) = range.get("start") else {
-            continue;
-        };
-        let Some(end) = range.get("end") else {
-            continue;
-        };
-        let sl = start.get("line").and_then(Json::as_u64).unwrap_or(0) as usize;
-        let sc = start.get("character").and_then(Json::as_u64).unwrap_or(0) as usize;
-        let el = end.get("line").and_then(Json::as_u64).unwrap_or(0) as usize;
-        let ec = end.get("character").and_then(Json::as_u64).unwrap_or(0) as usize;
-        let start_byte = lsp_to_byte(doc, sl, sc, encoding);
-        let end_byte = lsp_to_byte(doc, el, ec, encoding);
-        if start_byte <= end_byte {
-            out.push(Replacement::new(
-                start_byte..end_byte,
-                edit.get("newText").and_then(Json::as_str).unwrap_or(""),
+        let line = number("line")?;
+        let character = number("character")?;
+        if line >= doc.len_lines() {
+            return Err(LspError("edit line out of bounds".into()));
+        }
+        let pos = lsp_to_byte(doc, line, character, encoding);
+        if position_to_lsp(doc, pos, encoding) != (line, character) {
+            return Err(LspError(
+                "edit character is out of bounds or splits a character".into(),
             ));
         }
+        Ok(pos)
+    };
+    let mut out = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let range = edit
+            .get("range")
+            .ok_or_else(|| LspError("edit missing range".into()))?;
+        let start = position(
+            range
+                .get("start")
+                .ok_or_else(|| LspError("edit missing start".into()))?,
+        )?;
+        let end = position(
+            range
+                .get("end")
+                .ok_or_else(|| LspError("edit missing end".into()))?,
+        )?;
+        let text = edit
+            .get("newText")
+            .and_then(Json::as_str)
+            .ok_or_else(|| LspError("edit missing newText".into()))?;
+        if start > end {
+            return Err(LspError("edit range is reversed".into()));
+        }
+        out.push(Replacement::new(start..end, text));
     }
-    out.sort_by(|a, b| (b.start, b.end, &b.text).cmp(&(a.start, a.end, &a.text)));
-    out
+    out.sort_by_key(|a| (a.start, a.end));
+    for pair in out.windows(2) {
+        if pair[1].start < pair[0].end || pair[1].start == pair[0].start {
+            return Err(LspError("overlapping edit ranges".into()));
+        }
+    }
+    out.reverse();
+    Ok(out)
 }
 
 #[derive(Clone, Debug)]
@@ -809,8 +859,13 @@ pub fn prepare_workspace_edit(
                     uri, version, target.version
                 )));
             }
-            let edits_json = change.get("edits").cloned().unwrap_or_else(Json::array);
-            let edits = text_edits_to_replacements(&target.document, &edits_json, encoding);
+            if plans.iter().any(|plan: &WorkspaceEditPlan| plan.uri == uri) {
+                return Err(LspError("duplicate workspace edit target".into()));
+            }
+            let edits_json = change
+                .get("edits")
+                .ok_or_else(|| LspError("workspace edit missing edits".into()))?;
+            let edits = text_edits_to_replacements(&target.document, edits_json, encoding)?;
             plans.push(WorkspaceEditPlan {
                 uri,
                 path: target.path.clone(),
@@ -1172,6 +1227,39 @@ impl LspManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_edits_reject_the_whole_list() {
+        let doc = Document::from_text("a😀z");
+        for json in [
+            r#"[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"},{"range":{},"newText":"y"}]"#,
+            r#"[{"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":3}},"newText":"x"}]"#,
+            r#"[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}]"#,
+            r#"[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"x"},{"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":3}},"newText":"y"}]"#,
+        ] {
+            assert!(text_edits_to_replacements(
+                &doc,
+                &Json::parse(json).unwrap(),
+                PositionEncoding::Utf16
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn lsp_headers_are_bounded_and_reject_duplicates() {
+        let mut oversized = std::io::Cursor::new(vec![b'x'; 16 * 1024 + 1]);
+        assert!(read_message(&mut oversized)
+            .unwrap_err()
+            .contains("headers too large"));
+        let mut duplicate =
+            std::io::Cursor::new(b"Content-Length: 2\r\ncontent-length: 2\r\n\r\n{}".to_vec());
+        assert!(read_message(&mut duplicate)
+            .unwrap_err()
+            .contains("duplicate"));
+        let mut valid = std::io::Cursor::new(b"content-length: 2\r\n\r\n{}".to_vec());
+        assert!(read_message(&mut valid).is_ok());
+    }
 
     #[test]
     fn position_encoding_round_trips_non_ascii() {

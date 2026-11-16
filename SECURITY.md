@@ -62,4 +62,5 @@ are intentional:
 - System clipboard behavior depends on external programs and the user's
   terminal; failures are reported but remote leakage is prevented only by the
   documented opt-ins.
-- No signed release artifacts or distribution packages exist yet.
+- Windows preview installers are available but unsigned; SmartScreen may warn.
+  They are not a signed production release.

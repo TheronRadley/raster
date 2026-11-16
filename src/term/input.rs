@@ -243,6 +243,8 @@ pub enum Event {
     Key(KeyEvent),
     /// Bracketed paste is text, never a sequence of editor commands.
     Paste(String),
+    /// An oversized terminal sequence or paste was discarded.
+    InputRejected(&'static str),
     Mouse(MouseEvent),
     Resize(Size),
     Focus(bool),
@@ -256,13 +258,18 @@ pub enum Event {
 enum State {
     Ground,
     Paste,
+    DiscardEscape { string: bool, escaped: bool },
 }
+
+const MAX_ESCAPE_BYTES: usize = 4096;
+const MAX_PASTE_BYTES: usize = 1024 * 1024;
 
 pub struct InputParser {
     buffer: Vec<u8>,
     state: State,
     paste: Vec<u8>,
     pending_escape: bool,
+    paste_overflow: bool,
 }
 
 impl Default for InputParser {
@@ -278,12 +285,17 @@ impl InputParser {
             state: State::Ground,
             paste: Vec::new(),
             pending_escape: false,
+            paste_overflow: false,
         }
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Event> {
-        self.buffer.extend_from_slice(bytes);
-        self.drain(false)
+        let mut events = Vec::new();
+        for chunk in bytes.chunks(4096) {
+            self.buffer.extend_from_slice(chunk);
+            events.extend(self.drain(false));
+        }
+        events
     }
 
     /// Emit a lone ESC (or discard incomplete UTF-8) after a short poll timeout.
@@ -297,12 +309,21 @@ impl InputParser {
             match self.state {
                 State::Paste => {
                     if let Some(end) = find_subslice(&self.buffer, b"\x1b[201~") {
-                        self.paste.extend_from_slice(&self.buffer[..end]);
+                        if !self.paste_overflow
+                            && self.paste.len().saturating_add(end) > MAX_PASTE_BYTES
+                        {
+                            self.paste.clear();
+                            self.paste_overflow = true;
+                            events.push(Event::InputRejected("paste exceeds 1 MiB"));
+                        }
+                        if !self.paste_overflow {
+                            self.paste.extend_from_slice(&self.buffer[..end]);
+                            events.push(Event::Paste(sanitize_paste(&self.paste)));
+                        }
                         self.buffer.drain(..end + 6);
-                        let text = sanitize_paste(&self.paste);
                         self.paste.clear();
+                        self.paste_overflow = false;
                         self.state = State::Ground;
-                        events.push(Event::Paste(text));
                     } else {
                         // A read can end in the middle of the closing marker.
                         // Keep its longest possible prefix for the next read.
@@ -312,8 +333,40 @@ impl InputParser {
                             .find(|&n| self.buffer.ends_with(&marker[..n]))
                             .unwrap_or(0);
                         let consumed = self.buffer.len() - keep;
-                        self.paste.extend_from_slice(&self.buffer[..consumed]);
+                        if !self.paste_overflow
+                            && self.paste.len().saturating_add(consumed) > MAX_PASTE_BYTES
+                        {
+                            self.paste.clear();
+                            self.paste_overflow = true;
+                            events.push(Event::InputRejected("paste exceeds 1 MiB"));
+                        }
+                        if !self.paste_overflow {
+                            self.paste.extend_from_slice(&self.buffer[..consumed]);
+                        }
                         self.buffer.drain(..consumed);
+                        return events;
+                    }
+                }
+                State::DiscardEscape {
+                    string,
+                    mut escaped,
+                } => {
+                    let mut end = None;
+                    for (i, byte) in self.buffer.iter().copied().enumerate() {
+                        if (string && (byte == 0x07 || (escaped && byte == b'\\')))
+                            || (!string && (0x40..=0x7e).contains(&byte))
+                        {
+                            end = Some(i + 1);
+                            break;
+                        }
+                        escaped = byte == 0x1b;
+                    }
+                    if let Some(end) = end {
+                        self.buffer.drain(..end);
+                        self.state = State::Ground;
+                    } else {
+                        self.buffer.clear();
+                        self.state = State::DiscardEscape { string, escaped };
                         return events;
                     }
                 }
@@ -336,20 +389,31 @@ impl InputParser {
                         self.pending_escape = false;
                         if let Some((event, used)) = self.parse_escape_sequence() {
                             self.buffer.drain(..used);
-                            match event {
-                                ParseOutcome::Event(e) => events.push(e),
-                                ParseOutcome::StartPaste => self.state = State::Paste,
-                                ParseOutcome::Ignore => {}
+                            if used > MAX_ESCAPE_BYTES {
+                                events.push(Event::InputRejected("escape sequence exceeds 4 KiB"));
+                            } else {
+                                match event {
+                                    ParseOutcome::Event(e) => events.push(e),
+                                    ParseOutcome::StartPaste => self.state = State::Paste,
+                                    ParseOutcome::Ignore => {}
+                                }
                             }
+                        } else if self.buffer.len() > MAX_ESCAPE_BYTES {
+                            let string = matches!(self.buffer[1], b']' | b'P' | b'X' | b'^' | b'_');
+                            self.buffer.drain(..2);
+                            self.state = State::DiscardEscape {
+                                string,
+                                escaped: false,
+                            };
+                            events.push(Event::InputRejected("escape sequence exceeds 4 KiB"));
                         } else {
-                            // Incomplete escape sequence; wait for more bytes.
                             return events;
                         }
                     } else if first >= 0x80 {
                         if let Some((ch, used)) = decode_utf8_at(&self.buffer) {
                             self.buffer.drain(..used);
                             events.push(Event::Key(KeyEvent::char(ch)));
-                        } else if flushing {
+                        } else if flushing || self.buffer.len() >= 4 {
                             self.buffer.remove(0);
                             events.push(Event::Key(KeyEvent::char('\u{fffd}')));
                         } else {
@@ -740,6 +804,34 @@ mod tests {
             p.feed(b"0~y\x1b[201~"),
             vec![Event::Paste("x\u{fffd}[200~y".into())]
         );
+    }
+
+    #[test]
+    fn oversized_paste_is_discarded_until_terminator_and_recovers() {
+        let mut p = InputParser::new();
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(vec![b'x'; MAX_PASTE_BYTES + 1]);
+        assert_eq!(
+            p.feed(&bytes),
+            vec![Event::InputRejected("paste exceeds 1 MiB")]
+        );
+        assert!(p.paste.is_empty());
+        assert!(p.feed(b"\x1b[20").is_empty());
+        assert_eq!(p.feed(b"1~a"), vec![Event::Key(KeyEvent::char('a'))]);
+    }
+
+    #[test]
+    fn oversized_control_strings_are_bounded_and_discarded() {
+        let mut p = InputParser::new();
+        let mut bytes = b"\x1b]".to_vec();
+        bytes.extend(vec![b'x'; MAX_ESCAPE_BYTES * 3]);
+        assert_eq!(
+            p.feed(&bytes),
+            vec![Event::InputRejected("escape sequence exceeds 4 KiB")]
+        );
+        assert!(p.buffer.len() <= MAX_ESCAPE_BYTES);
+        assert!(p.feed(b"\x1b").is_empty());
+        assert_eq!(p.feed(b"\\z"), vec![Event::Key(KeyEvent::char('z'))]);
     }
 
     #[test]

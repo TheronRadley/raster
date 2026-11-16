@@ -129,7 +129,7 @@ pub fn find_matches(
     options: SearchOptions,
     cancel: Option<&AtomicBool>,
 ) -> Result<Vec<Match>, SearchError> {
-    if pattern.is_empty() {
+    if pattern.is_empty() || options.max_results == 0 {
         return Ok(Vec::new());
     }
     let compiled = CompiledPattern::new(pattern, options)?;
@@ -152,7 +152,7 @@ pub fn find_matches(
                 end,
                 line: line_idx,
                 column: found.start(),
-                preview: sanitize_display(&text),
+                preview: match_preview(&text, found.start()),
             });
             if out.len() >= options.max_results {
                 return Ok(out);
@@ -162,6 +162,17 @@ pub fn find_matches(
     Ok(out)
 }
 
+// Slice the original UTF-8 before sanitizing: replacing a control character
+// changes byte lengths, so offsets cannot be applied to sanitized text.
+fn match_preview(text: &str, start: usize) -> String {
+    const MAX_PREVIEW_BYTES: usize = 160;
+    let mut end = start.saturating_add(MAX_PREVIEW_BYTES).min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    sanitize_display(&text[start..end])
+}
+
 pub fn find_matches_in_text(
     text: &str,
     pattern: &str,
@@ -169,14 +180,7 @@ pub fn find_matches_in_text(
     cancel: Option<&AtomicBool>,
 ) -> Result<Vec<Match>, SearchError> {
     let doc = Document::from_text(text);
-    let mut matches = find_matches(&doc, pattern, options, cancel)?;
-    for m in &mut matches {
-        let preview = m.preview.clone();
-        let start = m.column.min(preview.len());
-        let end = (m.column + 160).min(preview.len());
-        m.preview = sanitize_display(&preview[start..end]);
-    }
-    Ok(matches)
+    find_matches(&doc, pattern, options, cancel)
 }
 
 /// Replace every match in the explicit scope as one undoable transaction.
@@ -338,6 +342,40 @@ mod tests {
         assert_eq!(count, 2);
         tx.apply(&mut doc).unwrap();
         assert_eq!(doc.text(), "مرحبا [12] و [34]");
+    }
+
+    #[test]
+    fn previews_use_original_utf8_boundaries_and_are_bounded() {
+        let text = format!("\u{1b}مرحبا😀match{}", "界".repeat(5000));
+        let matches = find_matches_in_text(&text, "match", SearchOptions::default(), None).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].preview.starts_with("match"));
+        assert!(matches[0].preview.len() <= 160);
+        assert!(matches[0]
+            .preview
+            .is_char_boundary(matches[0].preview.len()));
+        let controls = format!("match{}", "\u{1b}".repeat(500));
+        let matches =
+            find_matches_in_text(&controls, "match", SearchOptions::default(), None).unwrap();
+        assert!(matches[0].preview.len() <= 480);
+        assert!(!matches[0].preview.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn search_respects_zero_and_many_results_limits() {
+        let doc = Document::from_text(&"x".repeat(100_000));
+        let opts = SearchOptions {
+            max_results: 20,
+            ..SearchOptions::default()
+        };
+        let matches = find_matches(&doc, "x", opts, None).unwrap();
+        assert_eq!(matches.len(), 20);
+        assert!(matches.iter().all(|m| m.preview.len() <= 160));
+        let opts = SearchOptions {
+            max_results: 0,
+            ..opts
+        };
+        assert!(find_matches(&doc, "x", opts, None).unwrap().is_empty());
     }
 
     #[test]
