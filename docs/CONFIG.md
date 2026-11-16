@@ -105,7 +105,6 @@ state, not document contents. Dirty buffers are never silently reloaded.
 | --- | --- | --- |
 | `enabled` | `false` | Start configured servers for matching languages. `--no-lsp` disables it. |
 | `request_timeout_ms` | `5000` | Validated `100..=120000`. |
-| `trust_workspace_edits` | `false` | When false, multi-file/broad WorkspaceEdits require review. |
 | `servers` | `[]` | Array of explicit server tables; see below. |
 
 Each `[[lsp.servers]]` table requires:

@@ -29,8 +29,7 @@ implied to be shipped.
    stale responses, hangs, crashes, flooding, and shutdown. It has not been
    validated against `rust-analyzer`, `clangd`, `gopls`, or a Python server.
 4. **WorkspaceEdit review needs more real-world validation.** Versions and
-   paths are validated, broad/multi-file edits require user visibility and
-   `trust_workspace_edits = false` by default, and server commands are not
+   paths are validated, broad/multi-file edits require user review, and server commands are not
    executed automatically. More tests with real servers and multiple open
    buffers are needed before calling this workflow release-grade.
 

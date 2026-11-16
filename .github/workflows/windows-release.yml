@@ -33,5 +33,10 @@ jobs:
         run: |
           $installer = @(Get-ChildItem target/installer/Raster-Setup-*-x64.exe)
           if ($installer.Count -ne 1) { throw 'Expected exactly one installer' }
+          gh release view "$env:TAG_NAME" --repo "$env:GITHUB_REPOSITORY" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "$env:TAG_NAME" --repo "$env:GITHUB_REPOSITORY" --verify-tag --prerelease --title "$env:TAG_NAME" --notes "Unsigned Windows preview installer."
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create preview release' }
+          }
           gh release upload "$env:TAG_NAME" $installer[0].FullName --repo "$env:GITHUB_REPOSITORY"
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

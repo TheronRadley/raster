@@ -145,6 +145,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 scripts/pty_smoke.py --binary target/debug/raster --native-lib target/native/libraster_checksum.so --output pty-smoke.json
 
+      - name: Shell PTY smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: python3 scripts/shell_pty_smoke.py target/debug/raster
+
       - name: Upload release binaries
         uses: actions/upload-artifact@v4
         with:
@@ -166,3 +170,13 @@ jobs:
             native-checks.json
             screen.txt
           if-no-files-found: ignore
+
+  msrv:
+    name: Rust 1.88 MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+      - run: cargo test --offline --locked

@@ -55,7 +55,7 @@ impl Terminal {
             ));
         }
         install_signal_handlers();
-        let (tx, input_rx) = mpsc::channel::<Vec<u8>>();
+        let (tx, input_rx) = mpsc::sync_channel::<Vec<u8>>(32);
         std::thread::Builder::new()
             .name("raster-input".into())
             .spawn(move || {
