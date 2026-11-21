@@ -9,16 +9,24 @@ use crate::core::transaction::{Transaction, TxError};
 struct UndoEntry {
     forward: Transaction,
     inverse: Transaction,
+    before: u64,
+    after: u64,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct History {
     undo: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
     limit: usize,
-    /// Monotonic count of applied edits. Unlike `undo.len()`, this does not
-    /// decrease when an old entry is evicted by the history limit.
+    /// Unique identity of the current state, including after branching.
     position: u64,
+    next_id: u64,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self::new(1000)
+    }
 }
 
 impl History {
@@ -28,12 +36,24 @@ impl History {
             redo: Vec::new(),
             limit: limit.max(1),
             position: 0,
+            next_id: 1,
         }
     }
 
     pub fn record(&mut self, forward: Transaction, inverse: Transaction) {
-        self.position = self.position.wrapping_add(1);
-        self.undo.push(UndoEntry { forward, inverse });
+        let before = self.position;
+        let after = self.next_id;
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("history identity exhausted");
+        self.position = after;
+        self.undo.push(UndoEntry {
+            forward,
+            inverse,
+            before,
+            after,
+        });
         if self.undo.len() > self.limit {
             self.undo.remove(0);
         }
@@ -52,7 +72,11 @@ impl History {
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
-        self.position = 0;
+        self.position = self.next_id;
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("history identity exhausted");
     }
 
     /// Used by buffers to compare the current history point with the last
@@ -73,11 +97,13 @@ impl History {
             return Ok(None);
         };
         let (applied_inverse, new_inverse) = entry.inverse.clone().apply(doc)?;
-        self.position = self.position.saturating_sub(1);
+        self.position = entry.before;
         let selections = applied_inverse.after_selections.clone();
         self.redo.push(UndoEntry {
             forward: entry.forward,
             inverse: new_inverse,
+            before: entry.before,
+            after: entry.after,
         });
         Ok(Some((applied_inverse, selections)))
     }
@@ -94,11 +120,13 @@ impl History {
             return Ok(None);
         };
         let (applied_forward, new_inverse) = entry.forward.clone().apply(doc)?;
-        self.position = self.position.wrapping_add(1);
+        self.position = entry.after;
         let selections = applied_forward.after_selections.clone();
         self.undo.push(UndoEntry {
             forward: applied_forward.clone(),
             inverse: new_inverse,
+            before: entry.before,
+            after: entry.after,
         });
         Ok(Some((applied_forward, selections)))
     }

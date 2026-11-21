@@ -141,16 +141,13 @@ impl Buffer {
         force_read_only: bool,
         large_mode: bool,
     ) -> Result<Self, BufferError> {
-        let (document, mut disk) = fs::load_file(path, force_read_only)?;
+        let (document, disk) = fs::load_file(path, force_read_only)?;
         let label = short_path(
             path,
             &std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
         );
         let end = BytePos(0);
         let language = detect_language(path);
-        if large_mode {
-            disk.read_only = false;
-        }
         Ok(Self {
             id,
             label,
@@ -855,6 +852,13 @@ mod tests {
         );
         buffer.redo().unwrap();
         assert!(buffer.dirty());
+        buffer.undo().unwrap();
+        buffer.undo().unwrap();
+        buffer.insert_text("Z").unwrap();
+        assert!(
+            buffer.dirty(),
+            "a branch at the saved depth is not the saved state"
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"Xone");
         std::fs::remove_dir_all(&dir).unwrap();
     }

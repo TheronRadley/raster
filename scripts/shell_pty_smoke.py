@@ -16,14 +16,19 @@ def main(binary):
     pid = master = None
     reaped = False
     try:
-        path = os.path.join(work, "sample.txt")
+        os.mkdir(os.path.join(work, "nested"))
+        with open(os.path.join(work, "Cargo.toml"), "w", encoding="utf-8") as output:
+            output.write('[package]\nname = "example"\n')
+        with open(os.path.join(work, "sample.txt"), "w", encoding="utf-8") as output:
+            output.write("wrong root file\n")
+        path = os.path.join(work, "nested", "sample.txt")
         with open(path, "w", encoding="utf-8") as output:
             output.write("hello from editor\n")
         env = dict(os.environ, HOME=work, XDG_CONFIG_HOME=os.path.join(work, "config"),
                    XDG_STATE_HOME=os.path.join(work, "state"), TERM="xterm-256color")
         pid, master = pty.fork()
         if pid == 0:
-            os.chdir(work)
+            os.chdir(os.path.join(work, "nested"))
             os.execvpe(binary, [binary, "--shell"], env)
         os.set_blocking(master, False)
         set_winsize(master, 24, 80)

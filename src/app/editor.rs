@@ -246,6 +246,7 @@ pub struct Editor {
     clipboard: ClipboardManager,
     last_external_check: Instant,
     last_recovery_submit: Instant,
+    recovery_errors: HashMap<BufferId, String>,
     last_session_save: Instant,
     last_git_refresh: Instant,
     external_warning: bool,
@@ -375,6 +376,7 @@ impl Editor {
             clipboard,
             last_external_check: now,
             last_recovery_submit: now,
+            recovery_errors: HashMap::new(),
             last_session_save: now,
             last_git_refresh: now,
             external_warning: false,
@@ -397,7 +399,12 @@ impl Editor {
         }
         let cli_files = editor.cli.files.clone();
         for file in cli_files {
-            editor.open_path(&file.path, file.line, file.col);
+            let path = if file.path.is_absolute() {
+                file.path
+            } else {
+                cwd.join(file.path)
+            };
+            editor.open_path(&path, file.line, file.col);
         }
         if !restored && editor.cli.files.is_empty() {
             editor.set_status("Welcome: type, Ctrl+S save, Ctrl+O open, F1 help");
@@ -538,12 +545,14 @@ impl Editor {
             )
         } else {
             let label = short_path(&absolute, &self.root);
-            Ok(Buffer::from_document(
+            let mut buffer = Buffer::from_document(
                 self.next_buffer_id,
                 label,
                 Document::empty(),
                 Some(absolute.clone()),
-            ))
+            );
+            buffer.disk.read_only = self.cli.read_only;
+            Ok(buffer)
         };
         match result {
             Ok(buffer) => {
@@ -1022,7 +1031,7 @@ impl Editor {
                 EditorAction::None
             }
             ConfirmAction::SaveAsOverwrite(path) => {
-                let result = self.save_as_path(&path);
+                let result = self.save_as_path_confirmed(&path, true);
                 self.report_save_result(result);
                 EditorAction::None
             }
@@ -2050,13 +2059,17 @@ impl Editor {
     }
 
     fn save_as_path(&mut self, path: &Path) -> Result<(), String> {
+        self.save_as_path_confirmed(path, false)
+    }
+
+    fn save_as_path_confirmed(&mut self, path: &Path, confirmed: bool) -> Result<(), String> {
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
             self.root.join(path)
         };
         let current = self.active_buffer_id();
-        if absolute.exists() {
+        if absolute.exists() && !confirmed {
             let same =
                 self.buffers.get(&current).and_then(Buffer::path) == Some(absolute.as_path());
             if same {
@@ -2074,7 +2087,7 @@ impl Editor {
         let options = SaveOptions {
             newline: self.config.editor.newline,
             fail_after_bytes: None,
-            allow_overwrite: false,
+            allow_overwrite: confirmed,
         };
         let result = {
             let Some(buffer) = self.buffers.get_mut(&current) else {
@@ -3658,6 +3671,7 @@ impl Editor {
         self.poll_lsp();
         self.poll_git();
         self.check_external_changes();
+        self.poll_recovery();
         self.submit_recovery_due();
         self.save_session_due();
     }
@@ -4087,53 +4101,79 @@ impl Editor {
     }
 
     fn apply_workspace_edit(&mut self, review: WorkspaceEditReview) {
-        let file_count = review.plans.len();
-        let edit_count: usize = review.plans.iter().map(|p| p.edits.len()).sum();
-        let mut applied_files = 0usize;
+        let mut prepared = Vec::new();
+        // Validate every target and transaction before changing any buffer.
         for plan in review.plans {
-            let Some(id) = self
+            let Some((id, buffer)) = self
                 .buffers
                 .iter()
                 .find(|(_, b)| b.path() == Some(plan.path.as_path()))
-                .map(|(id, _)| *id)
             else {
                 self.set_status_styled(
-                    "workspace edit skipped an unopened file",
-                    Style::Warning,
-                    Duration::from_secs(10),
-                );
-                continue;
-            };
-            let version = self
-                .buffers
-                .get(&id)
-                .map(|b| b.document.version())
-                .unwrap_or(0);
-            if version != plan.expected_version {
-                self.set_status_styled(
                     format!(
-                        "stale workspace edit rejected for {}",
+                        "workspace edit rejected: {} is not open",
                         short_path(&plan.path, &self.root)
                     ),
                     Style::Warning,
                     Duration::from_secs(10),
                 );
-                continue;
+                return;
+            };
+            if buffer.read_only() || buffer.document.version() != plan.expected_version {
+                self.set_status_styled(
+                    format!(
+                        "workspace edit rejected: {} is read-only or changed",
+                        short_path(&plan.path, &self.root)
+                    ),
+                    Style::Warning,
+                    Duration::from_secs(10),
+                );
+                return;
             }
-            let edits = plan.edits;
-            self.apply_edit_on(id, move |buffer| {
-                let selections = buffer.selections.clone();
-                let version = buffer.document.version();
-                buffer.apply(Transaction::new(
-                    "lsp-workspace-edit",
-                    edits,
-                    version,
-                    &selections,
-                ))
-            });
-            applied_files += 1;
+            let transaction = Transaction::new(
+                "lsp-workspace-edit",
+                plan.edits,
+                buffer.document.version(),
+                &buffer.selections,
+            );
+            let mut probe = buffer.document.clone();
+            if let Err(error) = transaction.clone().apply(&mut probe) {
+                self.set_status_styled(
+                    format!(
+                        "workspace edit rejected for {}: {error}",
+                        short_path(&plan.path, &self.root)
+                    ),
+                    Style::Warning,
+                    Duration::from_secs(10),
+                );
+                return;
+            }
+            prepared.push((*id, plan.path, transaction));
         }
-        self.set_status(format!("applied {edit_count} edit(s) in {applied_files}/{file_count} file(s); undo is per file"));
+        let total = prepared.len();
+        let mut applied = 0usize;
+        let mut edits = 0usize;
+        for (id, path, transaction) in prepared {
+            let result = self
+                .buffers
+                .get_mut(&id)
+                .expect("preflight target disappeared")
+                .apply(transaction);
+            match result {
+                Ok(outcome) => {
+                    edits += outcome.edits.len();
+                    applied += 1;
+                    self.after_edit(id, outcome);
+                }
+                Err(error) => {
+                    self.set_status_styled(format!("workspace edit stopped at {}: {error}; applied {applied}/{total} files", short_path(&path, &self.root)), Style::Warning, Duration::from_secs(10));
+                    return;
+                }
+            }
+        }
+        self.set_status(format!(
+            "applied {edits} edit(s) in {applied}/{total} file(s); undo is per file"
+        ));
     }
 
     fn show_code_actions(&mut self, payload: &Json) {
@@ -4337,6 +4377,31 @@ impl Editor {
         self.external_warning = any;
     }
 
+    fn poll_recovery(&mut self) {
+        let Some(manager) = self.recovery.as_ref() else {
+            return;
+        };
+        let updates = manager.take_updates();
+        let mut warning = None;
+        let mut cleared = false;
+        for (id, result) in updates {
+            match result {
+                Ok(()) => {
+                    cleared |= self.recovery_errors.remove(&id).is_some();
+                }
+                Err(error) => {
+                    self.recovery_errors.insert(id, error.clone());
+                    warning = Some(format!("recovery snapshot failed: {error}"));
+                }
+            }
+        }
+        if let Some(warning) = warning {
+            self.set_status_styled(warning, Style::Warning, Duration::from_secs(10));
+        } else if cleared && self.recovery_errors.is_empty() {
+            self.set_status("recovery snapshots working again");
+        }
+    }
+
     fn submit_recovery_due(&mut self) {
         if !self.config.session.recovery || self.headless {
             return;
@@ -4427,7 +4492,10 @@ impl Editor {
             let Some(path) = &file.path else {
                 continue;
             };
-            match Buffer::open(self.next_buffer_id, path, self.cli.read_only, false) {
+            let large_mode = fs::metadata(path)
+                .map(|m| m.len() > self.config.editor.large_file_threshold)
+                .unwrap_or(false);
+            match Buffer::open(self.next_buffer_id, path, self.cli.read_only, large_mode) {
                 Ok(buffer) => {
                     let id = self.add_buffer(buffer);
                     if let Some(buffer) = self.buffers.get_mut(&id) {
@@ -4585,6 +4653,58 @@ mod tests {
 
     fn key(ch: char) -> Event {
         Event::Key(KeyEvent::char(ch))
+    }
+
+    #[test]
+    fn confirming_save_as_overwrite_saves_once() {
+        let dir = TestDir::new();
+        let path = dir.0.join("existing.txt");
+        fs::write(&path, "old").unwrap();
+        let mut editor = Editor::for_test(Config::default(), "new content");
+        editor.save_as_path(&path).unwrap();
+        assert!(matches!(editor.ui, UiMode::Confirm { .. }));
+        editor.confirm(ConfirmAction::SaveAsOverwrite(path.clone()));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+        assert_eq!(editor.active_buffer().path(), Some(path.as_path()));
+    }
+
+    #[test]
+    fn workspace_edit_preflight_rejects_read_only_before_applying_any_file() {
+        let dir = TestDir::new();
+        let first = dir.0.join("first.txt");
+        let second = dir.0.join("second.txt");
+        fs::write(&first, "first").unwrap();
+        fs::write(&second, "second").unwrap();
+        let mut editor = Editor::for_test(Config::default(), "");
+        assert!(editor.open_path(&first, None, None));
+        let first_id = editor.active_buffer_id();
+        assert!(editor.open_path(&second, None, None));
+        let second_id = editor.active_buffer_id();
+        editor.buffers.get_mut(&second_id).unwrap().disk.read_only = true;
+        let plan = |path: PathBuf, id: BufferId| lsp::WorkspaceEditPlan {
+            uri: lsp::uri_from_path(&path),
+            path,
+            expected_version: editor.buffers[&id].document.version(),
+            edits: vec![Replacement::insert(BytePos(0), "x")],
+        };
+        let review = WorkspaceEditReview {
+            plans: vec![plan(first, first_id), plan(second, second_id)],
+            broad: true,
+        };
+        editor.apply_workspace_edit(review);
+        assert_eq!(editor.buffers[&first_id].document.text(), "first");
+        assert_eq!(editor.buffers[&second_id].document.text(), "second");
+        assert!(editor.status.contains("rejected"));
+    }
+
+    #[test]
+    fn large_mode_does_not_override_forced_read_only() {
+        let dir = TestDir::new();
+        let path = dir.0.join("large.txt");
+        fs::write(&path, "contents").unwrap();
+        let buffer = Buffer::open(1, &path, true, true).unwrap();
+        assert!(buffer.large_mode);
+        assert!(buffer.read_only());
     }
 
     #[test]

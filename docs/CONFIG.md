@@ -128,7 +128,7 @@ editing.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `true` | Read-only branch/status/diff indicators. |
+| `enabled` | `false` | Opt in to branch/status/diff indicators for trusted workspaces. |
 | `refresh_ms` | `5000` | Background refresh interval. |
 
 Raster performs no destructive Git actions.

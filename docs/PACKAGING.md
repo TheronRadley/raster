@@ -1,6 +1,6 @@
 # Packaging and installation
 
-An unsigned Windows x64 preview installer is available as a direct EXE from the
+An older unsigned Windows x64 preview installer, which predates current safety fixes, is available as a direct EXE from the
 [preview release](https://github.com/TheronRadley/raster/releases/tag/windows-preview-brand-20261114).
 It is not a stable or signed release. Source builds remain available on all
 platforms.

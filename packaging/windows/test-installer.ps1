@@ -16,6 +16,10 @@ try {
     foreach ($name in @('raster.exe', 'raster-logo.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'docs\LIMITATIONS.md', 'unins000.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDir $name) -PathType Leaf)) { throw "Installed file missing: $name" }
     }
+    $licenseFiles = @('regex-lite\LICENSE-APACHE', 'regex-lite\LICENSE-MIT', 'ropey\LICENSE.md', 'smallvec\LICENSE-APACHE', 'smallvec\LICENSE-MIT', 'str_indices\LICENSE-APACHE', 'str_indices\LICENSE-MIT', 'unicode-segmentation\LICENSE-APACHE', 'unicode-segmentation\LICENSE-MIT', 'unicode-width\LICENSE-APACHE', 'unicode-width\LICENSE-MIT')
+    foreach ($name in $licenseFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $installDir (Join-Path 'licenses' $name)) -PathType Leaf)) { throw "Missing upstream license: $name" }
+    }
     $group = Join-Path ([Environment]::GetFolderPath('Programs')) 'Raster'
     $shellShortcut = Join-Path $group 'Raster.lnk'
     $editorShortcut = Join-Path $group 'Raster Editor.lnk'

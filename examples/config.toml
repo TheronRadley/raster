@@ -52,7 +52,8 @@ args = []
 root_markers = ["Cargo.toml", "rust-toolchain.toml"]
 
 [git]
-enabled = true
+# Enable only for a workspace you trust.
+enabled = false
 refresh_ms = 5000
 
 [keys]

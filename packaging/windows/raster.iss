@@ -37,6 +37,17 @@ Source: "..\..\target\x86_64-pc-windows-msvc\release\raster.exe"; DestDir: "{app
 Source: "..\..\assets\raster-logo.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\third_party\regex-lite\LICENSE-APACHE"; DestDir: "{app}\licenses\regex-lite"; Flags: ignoreversion
+Source: "..\..\third_party\regex-lite\LICENSE-MIT"; DestDir: "{app}\licenses\regex-lite"; Flags: ignoreversion
+Source: "..\..\third_party\ropey\LICENSE.md"; DestDir: "{app}\licenses\ropey"; Flags: ignoreversion
+Source: "..\..\third_party\smallvec\LICENSE-APACHE"; DestDir: "{app}\licenses\smallvec"; Flags: ignoreversion
+Source: "..\..\third_party\smallvec\LICENSE-MIT"; DestDir: "{app}\licenses\smallvec"; Flags: ignoreversion
+Source: "..\..\third_party\str_indices\LICENSE-APACHE"; DestDir: "{app}\licenses\str_indices"; Flags: ignoreversion
+Source: "..\..\third_party\str_indices\LICENSE-MIT"; DestDir: "{app}\licenses\str_indices"; Flags: ignoreversion
+Source: "..\..\third_party\unicode-segmentation\LICENSE-APACHE"; DestDir: "{app}\licenses\unicode-segmentation"; Flags: ignoreversion
+Source: "..\..\third_party\unicode-segmentation\LICENSE-MIT"; DestDir: "{app}\licenses\unicode-segmentation"; Flags: ignoreversion
+Source: "..\..\third_party\unicode-width\LICENSE-APACHE"; DestDir: "{app}\licenses\unicode-width"; Flags: ignoreversion
+Source: "..\..\third_party\unicode-width\LICENSE-MIT"; DestDir: "{app}\licenses\unicode-width"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 

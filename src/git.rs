@@ -149,8 +149,18 @@ pub fn refresh_sync(root: &Path) -> GitSnapshot {
         Ok(status) => {
             let mut snapshot = parse_status(&status);
             for (path, _) in snapshot.changed.clone() {
-                if let Ok(diff) = run_git(root, &["diff", "--unified=0", "--no-color", "--", &path])
-                {
+                if let Ok(diff) = run_git(
+                    root,
+                    &[
+                        "diff",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        "--unified=0",
+                        "--no-color",
+                        "--",
+                        &path,
+                    ],
+                ) {
                     let lines = parse_diff_lines(&diff);
                     if !lines.is_empty() {
                         snapshot.diff_lines.insert(path, lines);
@@ -179,6 +189,7 @@ fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
             "--no-optional-locks",
         ])
         .args(args)
+        .env("GIT_EXTERNAL_DIFF", "")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", GIT_EMPTY_PATH)
         .env("GIT_OPTIONAL_LOCKS", "0")

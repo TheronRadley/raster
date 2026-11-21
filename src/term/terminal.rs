@@ -141,12 +141,21 @@ impl Terminal {
                 events.extend(parser.flush());
             }
         }
-        let size = self.current_size();
-        if size.cols != self.size.cols || size.rows != self.size.rows {
-            self.size = size;
-            events.push(Event::Resize(size));
+        let signals = take_signals();
+        #[cfg(unix)]
+        let check_size = signals
+            .iter()
+            .any(|s| matches!(s, SignalKind::Resize | SignalKind::Continue));
+        #[cfg(not(unix))]
+        let check_size = true;
+        if check_size {
+            let size = self.current_size();
+            if size.cols != self.size.cols || size.rows != self.size.rows {
+                self.size = size;
+                events.push(Event::Resize(size));
+            }
         }
-        for signal in take_signals() {
+        for signal in signals {
             events.push(Event::Signal(signal));
         }
         events.push(Event::Tick);

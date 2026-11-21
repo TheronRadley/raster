@@ -630,7 +630,17 @@ pub fn uri_from_path(path: &Path) -> String {
             .unwrap_or_else(|_| PathBuf::from("/"))
             .join(path)
     };
+    #[cfg(windows)]
     let text = absolute.to_string_lossy().replace('\\', "/");
+    #[cfg(not(windows))]
+    let text = absolute.to_string_lossy().into_owned();
+    #[cfg(windows)]
+    let mut out = if text.starts_with("//") {
+        String::from("file:")
+    } else {
+        String::from("file://")
+    };
+    #[cfg(not(windows))]
     let mut out = String::from("file://");
     // A Windows drive path needs `file:///C:/...`, not `file://C:/...`.
     // UNC paths already begin with `//` and keep the standard prefix.
@@ -640,11 +650,16 @@ pub fn uri_from_path(path: &Path) -> String {
             out.push('/');
         }
     }
-    for byte in text.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b'-' | b'_' | b'.' | b'~') {
+    for (index, byte) in text.as_bytes().iter().enumerate() {
+        let drive_colon = cfg!(windows) && index == 1 && *byte == b':';
+        if byte.is_ascii_alphanumeric()
+            || matches!(*byte, b'/' | b'-' | b'_' | b'.' | b'~')
+            || drive_colon
+        {
             out.push(*byte as char);
         } else {
-            out.push_str(&format!("%{:02X}", byte));
+            use std::fmt::Write as _;
+            write!(&mut out, "%{byte:02X}").expect("writing to a String cannot fail");
         }
     }
     out
@@ -660,6 +675,8 @@ pub fn path_from_uri(uri: &str) -> Option<PathBuf> {
             let hex = std::str::from_utf8(&raw[i + 1..i + 3]).ok()?;
             bytes.push(u8::from_str_radix(hex, 16).ok()?);
             i += 3;
+        } else if raw[i] == b'%' {
+            return None;
         } else {
             bytes.push(raw[i]);
             i += 1;
@@ -672,6 +689,8 @@ pub fn path_from_uri(uri: &str) -> Option<PathBuf> {
         let mut text = text;
         if text.as_bytes().first() == Some(&b'/') && text.as_bytes().get(2) == Some(&b':') {
             text.remove(0);
+        } else if !text.starts_with('/') {
+            text = format!("//{text}");
         }
         text
     };
@@ -1284,6 +1303,25 @@ mod tests {
         let uri = uri_from_path(&path);
         assert!(uri.starts_with("file://"));
         assert!(!uri.contains(' '));
+        assert_eq!(path_from_uri(&uri), Some(path));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_uri_preserves_backslashes() {
+        let path = PathBuf::from("/tmp/a\\b #.rs");
+        let uri = uri_from_path(&path);
+        assert!(uri.contains("%5C"));
+        assert_eq!(path_from_uri(&uri), Some(path));
+        assert!(path_from_uri("file:///tmp/bad%").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_unc_uri_round_trips() {
+        let path = PathBuf::from(r"\\server\share\file.txt");
+        let uri = uri_from_path(&path);
+        assert_eq!(uri, "file://server/share/file.txt");
         assert_eq!(path_from_uri(&uri), Some(path));
     }
 
