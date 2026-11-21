@@ -14,7 +14,7 @@
 **[Download the Windows x64 installer (.exe)](https://github.com/TheronRadley/raster/releases/download/windows-preview-brand-20261114/Raster-Setup-0.1.0-x64.exe)**
 
 The installer targets 64-bit Windows 10 and 11 and installs per user. This is
-an **unsigned preview**; SmartScreen may warn, and interactive use on Windows
+an **older unsigned preview** that predates current safety fixes; SmartScreen may warn, and interactive use on Windows
 10/11 desktops still needs testing. [Installation and build details](docs/PACKAGING.md).
 
 ## Get started

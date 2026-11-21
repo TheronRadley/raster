@@ -63,8 +63,7 @@ fn run() -> io::Result<u8> {
         .config
         .clone()
         .unwrap_or_else(|| config_dir().join("config.toml"));
-    let mut config = load_config(&cli, &config_path)?;
-    config.apply_cli(&cli);
+    let config = load_config(&cli, &config_path)?;
     config.validate().map_err(to_io)?;
     if cli.bench_startup {
         bench_startup(&config)?;

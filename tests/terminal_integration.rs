@@ -90,6 +90,32 @@ fn cli_help_version_health_and_startup_json() {
 }
 
 #[test]
+fn cli_file_is_relative_to_launch_directory_not_project_root() {
+    let dir = TestDir::new();
+    let sub = dir.0.join("nested");
+    fs::create_dir_all(&sub).unwrap();
+    fs::write(dir.0.join("Cargo.toml"), "[package]\nname = \"example\"\n").unwrap();
+    fs::write(dir.0.join("sample.txt"), "wrong root file").unwrap();
+    fs::write(sub.join("sample.txt"), "correct nested file").unwrap();
+    let screen = dir.0.join("screen.txt");
+    let output = raster_command(&dir)
+        .current_dir(&sub)
+        .args(["--no-config", "--no-session", "--dump-screen"])
+        .arg(&screen)
+        .arg("sample.txt")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let contents = fs::read_to_string(screen).unwrap();
+    assert!(contents.contains("correct nested file"), "{contents}");
+    assert!(!contents.contains("wrong root file"));
+}
+
+#[test]
 fn replayed_input_dumps_a_plain_screen_without_a_terminal() {
     let dir = TestDir::new();
     let script = dir.0.join("replay.txt");

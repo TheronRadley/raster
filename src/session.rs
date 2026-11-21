@@ -49,6 +49,8 @@ pub struct RecoveryRecord {
 
 struct Shared {
     pending: HashMap<BufferId, RecoveryJob>,
+    in_flight: Option<BufferId>,
+    updates: HashMap<BufferId, Result<(), String>>,
     stop: bool,
 }
 
@@ -65,6 +67,8 @@ impl RecoveryManager {
         let shared = Arc::new((
             Mutex::new(Shared {
                 pending: HashMap::new(),
+                in_flight: None,
+                updates: HashMap::new(),
                 stop: false,
             }),
             Condvar::new(),
@@ -78,7 +82,7 @@ impl RecoveryManager {
             .spawn(move || {
                 let (lock, cond) = &*thread_shared;
                 loop {
-                    let jobs: Vec<RecoveryJob> = {
+                    let job = {
                         let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
                         while state.pending.is_empty() && !state.stop {
                             state = cond.wait(state).unwrap_or_else(|e| e.into_inner());
@@ -86,11 +90,17 @@ impl RecoveryManager {
                         if state.stop && state.pending.is_empty() {
                             break;
                         }
-                        std::mem::take(&mut state.pending).into_values().collect()
+                        let id = *state.pending.keys().next().unwrap();
+                        let job = state.pending.remove(&id).unwrap();
+                        state.in_flight = Some(id);
+                        job
                     };
-                    for job in jobs {
-                        let _ = write_recovery_file(&thread_dir, &thread_session, &job);
-                    }
+                    let result = write_recovery_file(&thread_dir, &thread_session, &job)
+                        .map_err(|e| e.to_string());
+                    let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    state.in_flight = None;
+                    state.updates.insert(job.buffer_id, result);
+                    cond.notify_all();
                 }
             })?;
         Ok(Self {
@@ -118,18 +128,21 @@ impl RecoveryManager {
     }
 
     pub fn remove(&self, buffer_id: BufferId) {
-        if let Ok(mut state) = self.shared.0.lock() {
-            state.pending.remove(&buffer_id);
+        let (lock, cond) = &*self.shared;
+        let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+        state.pending.remove(&buffer_id);
+        while state.in_flight == Some(buffer_id) {
+            state = cond.wait(state).unwrap_or_else(|e| e.into_inner());
         }
-        let suffix = format!("-{buffer_id}.rasterrec");
-        if let Ok(entries) = fs::read_dir(&self.dir) {
-            for entry in entries.filter_map(Result::ok) {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("recovery-") && name.ends_with(&suffix) {
-                    let _ = fs::remove_file(entry.path());
-                }
-            }
-        }
+        state.pending.remove(&buffer_id);
+        state.updates.remove(&buffer_id);
+        let _ = fs::remove_file(recovery_path(&self.dir, &self.session_id, buffer_id));
+    }
+
+    /// Return the latest write outcome per buffer, coalescing repeated snapshots.
+    pub fn take_updates(&self) -> HashMap<BufferId, Result<(), String>> {
+        let mut state = self.shared.0.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut state.updates)
     }
 
     pub fn recover_all(&self) -> Vec<RecoveryRecord> {
@@ -470,6 +483,75 @@ mod tests {
         }
         manager.remove(7);
         assert!(manager.recover_all().is_empty());
+    }
+
+    #[test]
+    fn remove_waits_for_writes_and_does_not_delete_other_sessions() {
+        let dir = TestDir::new();
+        let first = RecoveryManager::start(dir.0.join("state")).unwrap();
+        let second = RecoveryManager::start(dir.0.join("state")).unwrap();
+        let job = RecoveryJob {
+            buffer_id: 1,
+            path: None,
+            label: "scratch".into(),
+            rope: Document::from_text(&"x".repeat(1024 * 1024)).rope(),
+            version: 1,
+            cursors: vec![],
+            timestamp_ms: 0,
+        };
+        second.submit(job.clone());
+        for _ in 0..100 {
+            if recovery_path(second.dir(), second.session_id(), 1).exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(recovery_path(second.dir(), second.session_id(), 1).exists());
+        for _ in 0..20 {
+            first.submit(job.clone());
+            first.remove(1);
+            assert!(!recovery_path(first.dir(), first.session_id(), 1).exists());
+        }
+        assert!(recovery_path(second.dir(), second.session_id(), 1).exists());
+    }
+
+    #[test]
+    fn reports_write_failures_and_later_success() {
+        let dir = TestDir::new();
+        let state_dir = dir.0.join("state");
+        let manager = RecoveryManager::start(state_dir.clone()).unwrap();
+        fs::remove_dir(&state_dir).unwrap();
+        fs::write(&state_dir, "not a directory").unwrap();
+        let job = RecoveryJob {
+            buffer_id: 2,
+            path: None,
+            label: "test".into(),
+            rope: Document::from_text("text").rope(),
+            version: 1,
+            cursors: vec![],
+            timestamp_ms: 0,
+        };
+        manager.submit(job.clone());
+        let mut failure = None;
+        for _ in 0..100 {
+            if let Some(value) = manager.take_updates().remove(&2) {
+                failure = Some(value);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(failure.unwrap().is_err());
+        fs::remove_file(&state_dir).unwrap();
+        manager.submit(job);
+        let mut success = None;
+        for _ in 0..100 {
+            if let Some(value) = manager.take_updates().remove(&2) {
+                success = Some(value);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(success.unwrap().is_ok());
     }
 
     #[test]

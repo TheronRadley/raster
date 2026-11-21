@@ -754,7 +754,7 @@ impl Default for Config {
                 servers: Vec::new(),
             },
             git: GitConfig {
-                enabled: true,
+                enabled: false,
                 refresh_ms: 5000,
             },
             key_overrides: HashMap::new(),

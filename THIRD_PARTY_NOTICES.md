@@ -2,7 +2,8 @@
 
 Raster is MIT licensed. The `third_party/` directory contains vendored source
 snapshots used at build time. Their licenses are retained in each crate
-directory:
+directory. Windows installers include the same texts under `licenses/`,
+organized by crate name:
 
 - `ropey` v1.6.1 — MIT (`third_party/ropey/LICENSE.md`).
 - `smallvec` v1.13.2 — MIT OR Apache-2.0 (`third_party/smallvec/LICENSE-*`).

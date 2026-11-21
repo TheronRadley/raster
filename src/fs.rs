@@ -23,6 +23,8 @@ pub struct DiskState {
     /// The regular file actually read/written.
     pub resolved_path: Option<PathBuf>,
     pub original_hash: u64,
+    /// Whether the path existed when the buffer was opened.
+    pub existed: bool,
     pub len: u64,
     pub modified: Option<SystemTime>,
     pub identity: (u64, u64),
@@ -41,6 +43,7 @@ impl DiskState {
             path: None,
             resolved_path: None,
             original_hash: 0,
+            existed: false,
             len: 0,
             modified: None,
             identity: (0, 0),
@@ -58,6 +61,7 @@ impl DiskState {
             path: Some(path.clone()),
             resolved_path: Some(path),
             original_hash: fnv1a(b""),
+            existed: false,
             len: 0,
             modified: None,
             identity: (0, 0),
@@ -165,6 +169,7 @@ pub fn load_file(path: &Path, force_read_only: bool) -> Result<(Document, DiskSt
         path: Some(path.to_path_buf()),
         resolved_path: Some(resolved),
         original_hash: fnv1a(&bytes),
+        existed: true,
         len: bytes.len() as u64,
         modified: meta.modified().ok(),
         identity: file_identity(&meta),
@@ -182,20 +187,15 @@ pub fn external_state(disk: &DiskState) -> ExternalState {
     let Some(path) = disk.resolved_path.as_ref() else {
         return ExternalState::Unchanged;
     };
-    let meta = match fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return ExternalState::Missing,
-        Err(e) => return ExternalState::Error(e.to_string()),
-    };
-    let identity = file_identity(&meta);
-    let same_meta = meta.len() == disk.len
-        && meta.modified().ok() == disk.modified
-        && identity == disk.identity;
-    if same_meta {
-        return ExternalState::Unchanged;
+    if !disk.existed {
+        return match fs::symlink_metadata(path) {
+            Ok(_) => ExternalState::Modified,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => ExternalState::Unchanged,
+            Err(e) => ExternalState::Error(e.to_string()),
+        };
     }
-    // Metadata changed: hash the disk bytes to distinguish a real content
-    // change from a harmless touch. A changed hash always wins on save.
+    // Metadata can be deliberately or accidentally preserved across a write.
+    // Always hash actual contents rather than trusting timestamps and length.
     match fs::read(path) {
         Ok(bytes) => {
             if fnv1a(&bytes) != disk.original_hash {
@@ -204,6 +204,7 @@ pub fn external_state(disk: &DiskState) -> ExternalState {
                 ExternalState::Unchanged
             }
         }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => ExternalState::Missing,
         Err(e) => ExternalState::Error(e.to_string()),
     }
 }
@@ -248,9 +249,19 @@ pub fn save_document(
 }
 
 pub fn save_as(doc: &Document, path: &Path, options: SaveOptions) -> Result<DiskState, SaveError> {
-    let mut disk = DiskState::for_new_file(path.to_path_buf(), doc.version());
-    let hash = atomic_replace(path, doc, &disk, options)?;
-    refresh_disk_state(&mut disk, doc, hash)?;
+    let mut disk = match fs::symlink_metadata(path) {
+        Ok(_) if options.allow_overwrite => {
+            load_file(path, false)
+                .map_err(|e| SaveError::Io(format!("cannot inspect destination: {e}")))?
+                .1
+        }
+        Ok(_) => return Err(SaveError::Conflict("destination already exists".into())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            DiskState::for_new_file(path.to_path_buf(), doc.version())
+        }
+        Err(e) => return Err(io_error(e)),
+    };
+    save_document(doc, &mut disk, options)?;
     Ok(disk)
 }
 
@@ -274,6 +285,7 @@ fn refresh_disk_state(disk: &mut DiskState, doc: &Document, hash: u64) -> Result
         .ok_or_else(|| SaveError::Io("missing resolved path".into()))?;
     let meta = fs::metadata(path).map_err(io_error)?;
     disk.original_hash = hash;
+    disk.existed = true;
     disk.len = meta.len();
     disk.modified = meta.modified().ok();
     disk.identity = file_identity(&meta);
@@ -302,6 +314,9 @@ fn atomic_replace(
     let journal = SaveJournal {
         target: target.to_path_buf(),
         temp: temp.clone(),
+        #[cfg(windows)]
+        backup: Some(backup.clone()),
+        #[cfg(not(windows))]
         backup: None,
         timestamp_ms: now_millis(),
         pid: std::process::id(),
@@ -325,18 +340,32 @@ fn atomic_replace(
     file.flush().map_err(io_error)?;
     file.sync_all().map_err(io_error)?;
     drop(file);
-    sync_directory(parent);
+    sync_directory(parent)?;
+    if !options.allow_overwrite && external_state(disk) != ExternalState::Unchanged {
+        return Err(SaveError::Conflict(
+            "destination changed while saving".into(),
+        ));
+    }
+    // A hard link creates a new destination atomically without replacing a
+    // file another process created after the preceding check.
+    if !disk.existed && !options.allow_overwrite {
+        fs::hard_link(&temp, target).map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                SaveError::Conflict("destination appeared while saving".into())
+            } else {
+                io_error(e)
+            }
+        })?;
+        sync_directory(parent)?;
+        fs::remove_file(&temp).map_err(io_error)?;
+        fs::remove_file(&journal_path).map_err(io_error)?;
+        sync_directory(parent)?;
+        return Ok(hash);
+    }
 
     #[cfg(unix)]
     {
         if let Err(e) = fs::rename(&temp, target) {
-            let _ = write_journal(
-                &journal_path,
-                &SaveJournal {
-                    backup: None,
-                    ..journal
-                },
-            );
             return Err(io_error(e));
         }
     }
@@ -346,13 +375,12 @@ fn atomic_replace(
         // restore it if the second rename fails.
         if target.exists() {
             fs::rename(target, &backup).map_err(io_error)?;
-            let journal_with_backup = SaveJournal {
-                backup: Some(backup.clone()),
-                ..journal.clone()
-            };
-            write_journal(&journal_path, &journal_with_backup)?;
             if let Err(e) = fs::rename(&temp, target) {
-                let _ = fs::rename(&backup, target);
+                if let Err(restore) = fs::rename(&backup, target) {
+                    return Err(SaveError::Io(format!(
+                        "replacement failed: {e}; backup restore failed: {restore}"
+                    )));
+                }
                 return Err(io_error(e));
             }
             let _ = fs::remove_file(&backup);
@@ -360,7 +388,9 @@ fn atomic_replace(
             return Err(io_error(e));
         }
     }
-    let _ = fs::remove_file(&journal_path);
+    sync_directory(parent)?;
+    fs::remove_file(&journal_path).map_err(io_error)?;
+    sync_directory(parent)?;
     Ok(hash)
 }
 
@@ -396,31 +426,39 @@ fn write_in_place(
         .create_new(true)
         .open(&temp)
         .map_err(io_error)?;
-    let hash = match write_document(&mut temp_file, doc, options) {
-        Ok(hash) => hash,
-        Err(e) => {
-            let _ = fs::copy(&backup, target);
-            return Err(e);
-        }
-    };
+    let hash = write_document(&mut temp_file, doc, options)?;
     temp_file.flush().map_err(io_error)?;
     temp_file.sync_all().map_err(io_error)?;
     drop(temp_file);
 
-    // Copy back through the original path: this truncates and rewrites the
-    // existing inode so hard links and symlinks stay intact.
-    if let Err(e) = fs::copy(&temp, target) {
-        let _ = fs::copy(&backup, target);
+    if !options.allow_overwrite && external_state(disk) != ExternalState::Unchanged {
+        return Err(SaveError::Conflict(
+            "destination changed while saving".into(),
+        ));
+    }
+    // Write through the existing inode without copying the temporary file's
+    // private permissions onto it. Restore contents the same way on failure.
+    if let Err(e) = overwrite_contents(&temp, target) {
+        if let Err(restore) = overwrite_contents(&backup, target) {
+            return Err(SaveError::Io(format!(
+                "save failed: {e}; backup restore failed: {restore}"
+            )));
+        }
         return Err(io_error(e));
     }
-    if let Ok(file) = OpenOptions::new().write(true).open(target) {
-        let _ = file.sync_all();
-    }
-    sync_directory(parent);
+    sync_directory(parent)?;
     let _ = fs::remove_file(&temp);
     let _ = fs::remove_file(&backup);
     let _ = fs::remove_file(&journal_path);
     Ok(hash)
+}
+
+fn overwrite_contents(source: &Path, target: &Path) -> io::Result<()> {
+    let mut input = File::open(source)?;
+    let mut output = OpenOptions::new().write(true).truncate(true).open(target)?;
+    io::copy(&mut input, &mut output)?;
+    output.flush()?;
+    output.sync_all()
 }
 
 struct CountingWriter<'a, W: Write> {
@@ -484,16 +522,17 @@ fn io_error(e: io::Error) -> SaveError {
     SaveError::Io(e.to_string())
 }
 
-fn sync_directory(parent: &Path) {
+fn sync_directory(parent: &Path) -> Result<(), SaveError> {
     #[cfg(unix)]
     {
-        if let Ok(dir) = File::open(parent) {
-            let _ = dir.sync_all();
-        }
+        File::open(parent)
+            .and_then(|dir| dir.sync_all())
+            .map_err(io_error)
     }
     #[cfg(not(unix))]
     {
         let _ = parent;
+        Ok(())
     }
 }
 
@@ -569,8 +608,15 @@ impl SaveJournal {
 }
 
 fn write_journal(path: &Path, journal: &SaveJournal) -> Result<(), SaveError> {
-    fs::write(path, journal.to_json().to_compact_string()).map_err(io_error)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(io_error)?;
     set_private_file(path).map_err(io_error)?;
+    file.write_all(journal.to_json().to_compact_string().as_bytes())
+        .map_err(io_error)?;
+    file.sync_all().map_err(io_error)?;
     Ok(())
 }
 
@@ -664,6 +710,90 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn new_file_first_save_and_existing_destination_conflict() {
+        let dir = TestDir::new();
+        let path = dir.0.join("new.txt");
+        let doc = Document::from_text("local");
+        let mut disk = DiskState::for_new_file(path.clone(), doc.version());
+        save_document(&doc, &mut disk, SaveOptions::default()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"local");
+        fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            save_document(&doc, &mut disk, SaveOptions::default()),
+            Err(SaveError::Conflict(_))
+        ));
+        let other = dir.0.join("appeared.txt");
+        let mut new_disk = DiskState::for_new_file(other.clone(), doc.version());
+        fs::write(&other, "external").unwrap();
+        assert!(matches!(
+            save_document(&doc, &mut new_disk, SaveOptions::default()),
+            Err(SaveError::Conflict(_))
+        ));
+        assert_eq!(fs::read(&other).unwrap(), b"external");
+    }
+
+    #[test]
+    fn changed_content_is_detected_even_if_metadata_is_unchanged() {
+        let dir = TestDir::new();
+        let path = dir.write("same.txt", "original");
+        let (doc, mut disk) = load_file(&path, false).unwrap();
+        fs::write(&path, "external").unwrap();
+        disk.modified = fs::metadata(&path).unwrap().modified().ok();
+        assert!(matches!(
+            save_document(&doc, &mut disk, SaveOptions::default()),
+            Err(SaveError::Conflict(_))
+        ));
+        assert_eq!(fs::read(&path).unwrap(), b"external");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hard_link_save_and_failed_preparation_keep_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TestDir::new();
+        let path = dir.write("hard.txt", "original");
+        let alias = dir.0.join("alias");
+        fs::hard_link(&path, &alias).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o754)).unwrap();
+        let (_, mut disk) = load_file(&path, false).unwrap();
+        let doc = Document::from_text("new contents");
+        let opts = SaveOptions {
+            fail_after_bytes: Some(2),
+            ..SaveOptions::default()
+        };
+        assert!(save_document(&doc, &mut disk, opts).is_err());
+        assert_eq!(
+            fs::metadata(&alias).unwrap().permissions().mode() & 0o777,
+            0o754
+        );
+        assert_eq!(fs::read(&alias).unwrap(), b"original");
+        save_document(&doc, &mut disk, SaveOptions::default()).unwrap();
+        assert_eq!(
+            fs::metadata(&alias).unwrap().permissions().mode() & 0o777,
+            0o754
+        );
+        assert_eq!(fs::read(&alias).unwrap(), b"new contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_as_preserves_existing_destination_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TestDir::new();
+        let path = dir.write("target", "old");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o754)).unwrap();
+        let opts = SaveOptions {
+            allow_overwrite: true,
+            ..SaveOptions::default()
+        };
+        save_as(&Document::from_text("new"), &path, opts).unwrap();
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o754
+        );
     }
 
     #[test]
