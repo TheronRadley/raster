@@ -220,6 +220,81 @@ impl Frame {
         out
     }
 
+    /// Render only changed cell spans. Wide glyphs are expanded to their full
+    /// old and new boundaries so replacing either half cannot leave artifacts.
+    /// A missing or differently sized previous frame forces a full redraw.
+    pub fn render_diff(&self, previous: Option<&Frame>, styling: bool) -> Vec<u8> {
+        let Some(previous) = previous.filter(|p| {
+            p.width == self.width && p.height == self.height && p.cjk_wide == self.cjk_wide
+        }) else {
+            return self.render_ansi(styling);
+        };
+        if self.cells == previous.cells && self.cursor == previous.cursor {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        out.extend_from_slice(b"\x1b[?25l");
+        for row in 0..self.height {
+            let base = row * self.width;
+            let mut changed =
+                (0..self.width).filter(|&x| self.cells[base + x] != previous.cells[base + x]);
+            let Some(mut first) = changed.clone().next() else {
+                continue;
+            };
+            let mut end = changed.next_back().unwrap() + 1;
+            // Include the leading and trailing cells of glyphs in both frames.
+            while first > 0
+                && (self.cells[base + first].continuation
+                    || previous.cells[base + first].continuation)
+            {
+                first -= 1;
+            }
+            while end < self.width
+                && (self.cells[base + end].continuation || previous.cells[base + end].continuation)
+            {
+                end += 1;
+            }
+            out.extend_from_slice(format!("\x1b[{};{}H", row + 1, first + 1).as_bytes());
+            let mut style = Style::Plain;
+            out.extend_from_slice(Style::Plain.sgr().as_bytes());
+            let mut col = first;
+            while col < end {
+                let cell = &self.cells[base + col];
+                if cell.continuation {
+                    col += 1;
+                    continue;
+                }
+                let essential =
+                    matches!(cell.style, Style::Reverse | Style::Active | Style::Warning);
+                let next = if styling || essential {
+                    cell.style
+                } else {
+                    Style::Plain
+                };
+                if next != style {
+                    out.extend_from_slice(next.sgr().as_bytes());
+                    style = next;
+                }
+                if cell.text.is_empty() {
+                    out.push(b' ');
+                } else {
+                    out.extend_from_slice(cell.text.as_bytes());
+                }
+                col += cell.width.max(1);
+            }
+            if style != Style::Plain {
+                out.extend_from_slice(Style::Plain.sgr().as_bytes());
+            }
+        }
+        if let Some((x, y)) = self
+            .cursor
+            .filter(|&(x, y)| x < self.width && y < self.height)
+        {
+            out.extend_from_slice(format!("\x1b[{};{}H\x1b[?25h", y + 1, x + 1).as_bytes());
+        }
+        out
+    }
+
     /// Plain text for tests and `--dump-screen`. One line per row, no escapes.
     pub fn render_plain(&self) -> String {
         let mut out = String::new();
@@ -264,6 +339,38 @@ mod tests {
         let plain = frame.render_plain();
         assert!(plain.contains("\u{fffd}"));
         assert!(!plain.contains('\u{202e}'));
+    }
+
+    #[test]
+    fn differential_render_updates_changed_cells_and_handles_wide_glyphs() {
+        let mut old = Frame::new(12, 2, false);
+        old.set(0, 1, "界x", Style::Plain, 10);
+        old.cursor = Some((1, 0));
+        assert!(old.render_diff(Some(&old), true).is_empty());
+        let mut new = old.clone();
+        new.set(0, 2, "z", Style::Bold, 1);
+        let diff = String::from_utf8(new.render_diff(Some(&old), true)).unwrap();
+        assert!(diff.contains("\x1b[1;2H"));
+        assert!(diff.contains("\x1b[1mz"));
+        assert!(!diff.contains("\x1b[2;1H"));
+        assert!(diff.len() < new.render_ansi(true).len());
+        let resized = Frame::new(10, 2, false);
+        assert_eq!(
+            resized.render_diff(Some(&old), true),
+            resized.render_ansi(true)
+        );
+    }
+
+    #[test]
+    fn differential_render_updates_cursor_without_redrawing_text() {
+        let mut old = Frame::new(10, 2, false);
+        old.set(0, 0, "hello", Style::Plain, 10);
+        old.cursor = Some((0, 0));
+        let mut new = old.clone();
+        new.cursor = Some((3, 0));
+        let diff = String::from_utf8(new.render_diff(Some(&old), false)).unwrap();
+        assert!(!diff.contains("hello"));
+        assert!(diff.contains("\x1b[1;4H\x1b[?25h"));
     }
 
     #[test]

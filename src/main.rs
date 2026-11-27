@@ -264,8 +264,9 @@ fn run_interactive(config: Config, cli: CliOptions) -> io::Result<()> {
     terminal.enter(config.ui.mouse, config.ui.alt_screen)?;
     let mut editor = Editor::new(config, cli, terminal.size).map_err(to_io)?;
     let mut parser = InputParser::new();
-    let mut last_frame = editor.render_ansi(terminal.size);
-    terminal.write(&last_frame)?;
+    let mut last_frame = editor.render_frame(terminal.size);
+    let mut last_styling = editor.config.color_enabled();
+    terminal.write(&last_frame.render_ansi(last_styling))?;
     loop {
         let events = terminal.poll_events(&mut parser, Duration::from_millis(50));
         let mut requested = EditorAction::None;
@@ -283,18 +284,26 @@ fn run_interactive(config: Config, cli: CliOptions) -> io::Result<()> {
         for bytes in editor.take_output() {
             terminal.write(&bytes)?;
         }
-        let frame = editor.render_ansi(terminal.size);
-        if frame != last_frame {
-            terminal.write(&frame)?;
-            last_frame = frame;
+        let frame = editor.render_frame(terminal.size);
+        let styling = editor.config.color_enabled();
+        let previous = if styling == last_styling {
+            Some(&last_frame)
+        } else {
+            None
+        };
+        let changes = frame.render_diff(previous, styling);
+        if !changes.is_empty() {
+            terminal.write(&changes)?;
         }
+        last_frame = frame;
+        last_styling = styling;
         match requested {
             EditorAction::Quit => break,
             EditorAction::Suspend => {
                 let result = terminal.suspend();
                 // The alternate screen may have been re-entered even if the
                 // suspend command failed, so redraw in either case.
-                last_frame.clear();
+                last_frame = raster::term::renderer::Frame::new(0, 0, false);
                 match result {
                     Ok(()) => {
                         editor

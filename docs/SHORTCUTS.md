@@ -71,15 +71,19 @@ grapheme starts for cursor placement.
 
 | Chord | Command |
 | --- | --- |
-| `Ctrl+F` | Find |
-| `Ctrl+R` | Replace |
+| `Ctrl+F` | Incremental find; `Ctrl+R` toggles regex and `Ctrl+T` toggles case while the prompt is open |
+| `Ctrl+H` / `Ctrl+R` | Replace (`Ctrl+H` requires a terminal that sends distinct extended key events) |
 | `F3` / `Shift+F3` | Next / previous match |
 | `Ctrl+P` | Fuzzy files |
 | `Ctrl+Shift+F` | Project search |
 | `Ctrl+E` | Toggle file browser |
 
 Project scans honor ignore rules and can be canceled. Search results carry
-generations and document versions so obsolete results are not applied.
+generations and document versions so obsolete results are not applied. Find input is
+briefly debounced before background search; visible matches are highlighted.
+`F3` and `Shift+F3` also work while the find prompt is open. `Esc` clears the
+current search. Some terminals send the same byte for `Ctrl+H` and Backspace;
+use `Ctrl+R` for replace in those terminals.
 
 ### Buffers, views, and UI
 

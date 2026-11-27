@@ -224,6 +224,7 @@ pub struct Editor {
     should_quit: bool,
     search: SearchState,
     buffer_search: Option<BufferSearchHandle>,
+    pending_live_search: Option<Instant>,
     project: ProjectIndex,
     project_search: Option<ProjectSearchHandle>,
     project_generation: u64,
@@ -355,6 +356,7 @@ impl Editor {
             should_quit: false,
             search: SearchState::default(),
             buffer_search: None,
+            pending_live_search: None,
             project,
             project_search: None,
             project_generation: 0,
@@ -662,6 +664,12 @@ impl Editor {
                     .input
                     .insert_str(byte_at_char(&prompt.input, prompt.cursor), text);
                 prompt.cursor += text.chars().count();
+                let live = matches!(prompt.kind, PromptKind::Find | PromptKind::FindRegex);
+                let input = prompt.input.clone();
+                let kind = prompt.kind;
+                if live {
+                    self.schedule_live_search(input, kind);
+                }
             }
             UiMode::List(list) => {
                 list.query
@@ -856,16 +864,46 @@ impl Editor {
         if (key.mods.ctrl || key.mods.alt)
             && (key.key == Key::Char('c') || key.key == Key::Char('g'))
         {
+            if matches!(prompt.kind, PromptKind::Find | PromptKind::FindRegex) {
+                self.clear_live_search();
+            }
             self.ui = UiMode::Prompt(prompt);
             self.cancel_ui();
             return;
         }
+        let live = matches!(prompt.kind, PromptKind::Find | PromptKind::FindRegex);
+        if live && key.mods.ctrl && key.key == Key::Char('r') {
+            prompt.kind = if prompt.kind == PromptKind::Find {
+                PromptKind::FindRegex
+            } else {
+                PromptKind::Find
+            };
+            self.schedule_live_search(prompt.input.clone(), prompt.kind);
+            self.ui = UiMode::Prompt(prompt);
+            return;
+        }
+        if live && key.mods.ctrl && key.key == Key::Char('t') {
+            self.search.options.case_sensitive = !self.search.options.case_sensitive;
+            self.schedule_live_search(prompt.input.clone(), prompt.kind);
+            self.ui = UiMode::Prompt(prompt);
+            return;
+        }
+        if live && key.key == Key::F(3) {
+            self.find_next(!key.mods.shift);
+            self.ui = UiMode::Prompt(prompt);
+            return;
+        }
+        let old_input = prompt.input.clone();
         match key.key {
             Key::Escape => {
+                if live {
+                    self.clear_live_search();
+                }
                 self.cancel_ui();
                 return;
             }
             Key::Enter => {
+                self.pending_live_search = None;
                 self.submit_prompt(prompt);
                 return;
             }
@@ -905,6 +943,9 @@ impl Editor {
                 prompt.cursor += 1;
             }
             _ => {}
+        }
+        if live && prompt.input != old_input {
+            self.schedule_live_search(prompt.input.clone(), prompt.kind);
         }
         self.ui = UiMode::Prompt(prompt);
     }
@@ -1459,16 +1500,18 @@ impl Editor {
                     self.start_buffer_search(pattern, mode, true);
                 } else {
                     let existing = self.search.pattern.clone();
+                    let kind = if id == FindRegex {
+                        PromptKind::FindRegex
+                    } else {
+                        PromptKind::Find
+                    };
                     self.open_prompt(
-                        if id == FindRegex {
-                            PromptKind::FindRegex
-                        } else {
-                            PromptKind::Find
-                        },
+                        kind,
                         "Find:",
                         &existing,
-                        "literal/regex toggle in commands",
+                        "Ctrl+R regex · Ctrl+T case · F3 next",
                     );
+                    self.schedule_live_search(existing, kind);
                 }
                 EditorAction::None
             }
@@ -2470,8 +2513,44 @@ impl Editor {
         self.set_status(format!("{count} cursors"));
     }
 
+    fn clear_live_search(&mut self) {
+        self.pending_live_search = None;
+        if let Some(handle) = self.buffer_search.take() {
+            handle.cancel();
+        }
+        self.search.generation = self.search.generation.wrapping_add(1);
+        self.search.matches.clear();
+        self.search.pattern.clear();
+        self.search.index = 0;
+    }
+
+    fn schedule_live_search(&mut self, pattern: String, kind: PromptKind) {
+        self.clear_live_search();
+        self.search.pattern = pattern;
+        self.search.options.mode = if kind == PromptKind::FindRegex {
+            SearchMode::Regex
+        } else {
+            SearchMode::Literal
+        };
+        if !self.search.pattern.is_empty() {
+            self.pending_live_search = Some(Instant::now());
+        }
+    }
+
+    fn poll_live_search(&mut self) {
+        if self
+            .pending_live_search
+            .is_some_and(|started| started.elapsed() >= Duration::from_millis(80))
+        {
+            self.pending_live_search = None;
+            self.start_buffer_search(self.search.pattern.clone(), self.search.options.mode, false);
+        }
+    }
+
     fn start_buffer_search(&mut self, pattern: String, mode: SearchMode, auto_jump: bool) {
+        self.pending_live_search = None;
         if pattern.is_empty() {
+            self.clear_live_search();
             self.set_status("empty search pattern");
             return;
         }
@@ -3323,10 +3402,27 @@ impl Editor {
                 }
                 let row = content.y + content.height - 1;
                 frame.fill(row, Style::Plain);
+                let label = if matches!(prompt.kind, PromptKind::Find | PromptKind::FindRegex) {
+                    format!(
+                        "Find [{} {}]:",
+                        if prompt.kind == PromptKind::FindRegex {
+                            "regex"
+                        } else {
+                            "literal"
+                        },
+                        if self.search.options.case_sensitive {
+                            "case"
+                        } else {
+                            "ignore-case"
+                        }
+                    )
+                } else {
+                    prompt.label.clone()
+                };
                 let label_used = frame.set(
                     row,
                     0,
-                    &format!("{} ", prompt.label),
+                    &format!("{label} "),
                     Style::Active,
                     self.size.cols.saturating_sub(1),
                 );
@@ -3626,6 +3722,16 @@ impl Editor {
                 }) {
                     style = Style::Underline;
                 }
+                if self.search.buffer_id == buffer_id && self.search.version == version {
+                    let matches = &self.search.matches;
+                    let index = matches.partition_point(|m| m.end <= grapheme.start);
+                    if matches
+                        .get(index)
+                        .is_some_and(|m| m.start < grapheme.end && grapheme.start < m.end)
+                    {
+                        style = Style::Active;
+                    }
+                }
                 if selections
                     .iter()
                     .enumerate()
@@ -3666,6 +3772,7 @@ impl Editor {
         self.ensure_lsp_for_active();
         self.syntax.poll();
         if self.project.poll() { /* file index refresh */ }
+        self.poll_live_search();
         self.poll_buffer_search();
         self.poll_project_search();
         self.poll_lsp();
@@ -4922,6 +5029,66 @@ mod tests {
         } else {
             panic!("expected prompt");
         }
+    }
+
+    fn finish_live_search(editor: &mut Editor) {
+        editor.pending_live_search = Some(Instant::now() - Duration::from_millis(100));
+        editor.poll_live_search();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && editor.buffer_search.is_some() {
+            editor.poll_buffer_search();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.buffer_search.is_none(), "search worker timed out");
+    }
+
+    #[test]
+    fn incremental_search_highlights_debounces_and_navigates() {
+        let mut editor = Editor::for_test(Config::default(), "alpha α alpha");
+        editor.execute(Command::new(CommandId::Find));
+        editor.handle_event(Event::Paste("alpha".into()));
+        assert!(editor.search.matches.is_empty());
+        assert!(editor.pending_live_search.is_some());
+        finish_live_search(&mut editor);
+        assert_eq!(editor.search.matches.len(), 2);
+        let frame = editor.render_frame(Size::new(80, 12));
+        let highlighted = (0..frame.height)
+            .flat_map(|y| (0..frame.width).map(move |x| (y, x)))
+            .filter(|&(y, x)| frame.cell(y, x) == Some(("a", Style::Active)))
+            .count();
+        assert!(
+            highlighted >= 4,
+            "all visible matches should be highlighted"
+        );
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::F(3))));
+        assert_eq!(
+            editor.active_buffer().primary().range(),
+            BytePos(9)..BytePos(14)
+        );
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Escape)));
+        assert!(editor.search.matches.is_empty());
+        assert!(editor.pending_live_search.is_none());
+    }
+
+    #[test]
+    fn incremental_search_toggles_case_regex_and_discards_stale_results() {
+        let mut editor = Editor::for_test(Config::default(), "Alpha alpha");
+        editor.execute(Command::new(CommandId::Find));
+        editor.handle_event(Event::Paste("alpha".into()));
+        finish_live_search(&mut editor);
+        assert_eq!(editor.search.matches.len(), 2);
+        editor.handle_event(Event::Key(KeyEvent::ctrl('t')));
+        finish_live_search(&mut editor);
+        assert_eq!(editor.search.matches.len(), 1);
+        editor.handle_event(Event::Key(KeyEvent::ctrl('r')));
+        assert_eq!(editor.search.options.mode, SearchMode::Regex);
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Backspace)));
+        editor.handle_event(key('['));
+        finish_live_search(&mut editor);
+        assert!(editor.search.matches.is_empty());
+        assert!(editor.status.contains("invalid"));
+        editor.handle_event(Event::Key(KeyEvent::plain(Key::Escape)));
+        assert!(editor.search.pattern.is_empty());
     }
 
     #[test]

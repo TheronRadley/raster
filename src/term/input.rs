@@ -497,6 +497,22 @@ impl InputParser {
             .copied()
             .map(csi_modifiers)
             .unwrap_or_default();
+        // CSI-u / modifyOtherKeys-capable terminals can distinguish Ctrl+H
+        // from the legacy 0x08 Backspace byte.
+        if final_byte == b'u' {
+            if let Some(ch) = params.first().and_then(|value| char::from_u32(*value)) {
+                if !ch.is_control() {
+                    return Some((
+                        ParseOutcome::Event(Event::Key(KeyEvent {
+                            key: Key::Char(ch),
+                            mods,
+                        })),
+                        used,
+                    ));
+                }
+            }
+            return Some((ParseOutcome::Ignore, used));
+        }
         if final_byte == b'Z' {
             return Some((
                 ParseOutcome::Event(Event::Key(KeyEvent {
@@ -832,6 +848,19 @@ mod tests {
         assert!(p.buffer.len() <= MAX_ESCAPE_BYTES);
         assert!(p.feed(b"\x1b").is_empty());
         assert_eq!(p.feed(b"\\z"), vec![Event::Key(KeyEvent::char('z'))]);
+    }
+
+    #[test]
+    fn extended_ctrl_h_is_distinct_from_legacy_backspace() {
+        let mut parser = InputParser::new();
+        assert_eq!(
+            parser.feed(b"\x1b[104;5u"),
+            vec![Event::Key(KeyEvent::ctrl('h'))]
+        );
+        assert_eq!(
+            parser.feed(b"\x08"),
+            vec![Event::Key(KeyEvent::plain(Key::Backspace))]
+        );
     }
 
     #[test]

@@ -566,6 +566,7 @@ pub fn default_keybindings() -> Vec<(&'static str, CommandId)> {
         ("ctrl+shift+tab", PreviousBuffer),
         ("ctrl+f", Find),
         ("ctrl+r", Replace),
+        ("ctrl+h", Replace),
         ("f3", FindNext),
         ("shift+f3", FindPrevious),
         ("ctrl+shift+f", ProjectSearch),
