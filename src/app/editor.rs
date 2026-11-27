@@ -3422,7 +3422,7 @@ impl Editor {
                 let label_used = frame.set(
                     row,
                     0,
-                    &format!("{} ", label),
+                    &format!("{label} "),
                     Style::Active,
                     self.size.cols.saturating_sub(1),
                 );
